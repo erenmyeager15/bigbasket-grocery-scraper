@@ -1,0 +1,71 @@
+{
+  "title": "BigBasket Grocery Scraper Input",
+  "description": "Search BigBasket or scrape public grocery category pages.",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "keywords": {
+      "title": "Search keywords",
+      "description": "One or more grocery searches. Duplicate products are removed across all sources.",
+      "type": "array",
+      "editor": "stringList",
+      "default": ["milk"],
+      "prefill": ["milk", "rice"]
+    },
+    "categoryUrls": {
+      "title": "Category URLs",
+      "description": "Optional BigBasket category URLs, such as https://www.bigbasket.com/pc/fruits-vegetables/fresh-vegetables/",
+      "type": "array",
+      "editor": "stringList",
+      "default": []
+    },
+    "brands": {
+      "title": "Brand filter",
+      "description": "Optional exact brand names. Matching is case-insensitive.",
+      "type": "array",
+      "editor": "stringList",
+      "default": []
+    },
+    "inStockOnly": {
+      "title": "In-stock products only",
+      "description": "Exclude products marked unavailable or not for sale.",
+      "type": "boolean",
+      "editor": "checkbox",
+      "default": false
+    },
+    "maxResults": {
+      "title": "Maximum products",
+      "description": "Maximum unique products saved across the complete run.",
+      "type": "integer",
+      "editor": "number",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 100
+    },
+    "maxPagesPerSource": {
+      "title": "Pages per source",
+      "description": "Maximum result pages requested for each keyword or category URL.",
+      "type": "integer",
+      "editor": "number",
+      "minimum": 1,
+      "maximum": 25,
+      "default": 10
+    },
+    "proxyConfiguration": {
+      "title": "Proxy configuration",
+      "description": "India residential proxies are recommended for regional availability and pricing.",
+      "type": "object",
+      "editor": "proxy",
+      "default": {
+        "useApifyProxy": true,
+        "apifyProxyGroups": ["RESIDENTIAL"],
+        "apifyProxyCountry": "IN"
+      },
+      "prefill": {
+        "useApifyProxy": true,
+        "apifyProxyGroups": ["RESIDENTIAL"],
+        "apifyProxyCountry": "IN"
+      }
+    }
+  }
+}

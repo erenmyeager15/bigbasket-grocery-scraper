@@ -1,0 +1,13 @@
+{
+  "keywords": ["milk"],
+  "categoryUrls": [],
+  "brands": [],
+  "inStockOnly": false,
+  "maxResults": 10,
+  "maxPagesPerSource": 1,
+  "proxyConfiguration": {
+    "useApifyProxy": true,
+    "apifyProxyGroups": ["RESIDENTIAL"],
+    "apifyProxyCountry": "IN"
+  }
+}
