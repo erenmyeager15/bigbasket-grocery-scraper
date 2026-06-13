@@ -31,9 +31,12 @@ const proxyConfiguration = await Actor.createProxyConfiguration(
 
 const seenProductIds = new Set<string>();
 let savedCount = 0;
+let spendingLimitReached = false;
 
 for (const [sourceIndex, source] of sources.entries()) {
-    for (let page = 1; page <= maxPagesPerSource && savedCount < maxResults; page += 1) {
+    if (spendingLimitReached) break;
+
+    for (let page = 1; page <= maxPagesPerSource && savedCount < maxResults && !spendingLimitReached; page += 1) {
         let result: Awaited<ReturnType<typeof fetchProductPage>> | null = null;
         let lastError: unknown;
 
@@ -66,8 +69,15 @@ for (const [sourceIndex, source] of sources.entries()) {
 
             seenProductIds.add(product.productId);
             await Actor.pushData(product);
-            await Actor.charge({ eventName: 'product-scraped' });
+            const chargeResult = await Actor.charge({ eventName: 'product-scraped' });
             savedCount += 1;
+
+            if (chargeResult.eventChargeLimitReached) {
+                spendingLimitReached = true;
+                await Actor.setStatusMessage(`Stopped at the user's spending limit after ${savedCount} products`);
+                log.info('User spending limit reached; stopping before more requests are made.');
+                break;
+            }
         }
 
         log.info(`Processed ${source.source} page ${page}`, {
@@ -81,6 +91,8 @@ for (const [sourceIndex, source] of sources.entries()) {
     }
 }
 
-await Actor.setStatusMessage(`Finished with ${savedCount} unique products`);
+if (!spendingLimitReached) {
+    await Actor.setStatusMessage(`Finished with ${savedCount} unique products`);
+}
 log.info(`BigBasket scrape finished with ${savedCount} unique products.`);
 await Actor.exit();

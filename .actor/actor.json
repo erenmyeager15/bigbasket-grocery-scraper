@@ -15,7 +15,7 @@
         "product-scraped": {
           "eventTitle": "Product scraped",
           "eventDescription": "Charged once for each clean BigBasket product saved to the dataset.",
-          "eventPriceUsd": 0.001,
+          "eventPriceUsd": 0.002,
           "isPrimaryEvent": true,
           "isOneTimeEvent": false
         }

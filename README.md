@@ -82,7 +82,7 @@ The scraper uses BigBasket's public storefront listing service and initializes t
 
 | Event | Price | Description |
 |---|---:|---|
-| `product-scraped` | $0.001 | One clean product saved to the dataset |
+| `product-scraped` | $0.002 | One clean product saved to the dataset |
 
 ## Data Notes
 
