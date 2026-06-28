@@ -17,10 +17,25 @@ if (keywords.length === 0 && categoryUrls.length === 0) {
     throw new Error('Provide at least one keyword or BigBasket category URL.');
 }
 
-const sources: SourceDefinition[] = [
-    ...keywords.map(sourceFromKeyword),
-    ...categoryUrls.map(sourceFromCategoryUrl),
-];
+const skippedSources: Array<{ source: string; reason: string }> = [];
+const sources: SourceDefinition[] = keywords.map(sourceFromKeyword);
+for (const categoryUrl of categoryUrls) {
+    try {
+        sources.push(sourceFromCategoryUrl(categoryUrl));
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        skippedSources.push({ source: categoryUrl, reason });
+        log.warning('Skipping invalid BigBasket category URL', {
+            source: categoryUrl,
+            reason,
+        });
+    }
+}
+
+if (sources.length === 0) {
+    const reasons = skippedSources.map((item) => `${item.source}: ${item.reason}`).join('; ');
+    throw new Error(`Provide at least one valid keyword or BigBasket category URL.${reasons ? ` Skipped sources: ${reasons}` : ''}`);
+}
 
 const proxyConfiguration = await Actor.createProxyConfiguration(
     input.proxyConfiguration ?? {
@@ -33,7 +48,6 @@ const proxyConfiguration = await Actor.createProxyConfiguration(
 const seenProductIds = new Set<string>();
 let savedCount = 0;
 let spendingLimitReached = false;
-const skippedSources: Array<{ source: string; reason: string }> = [];
 
 for (const [sourceIndex, source] of sources.entries()) {
     if (spendingLimitReached) break;
