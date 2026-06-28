@@ -1,18 +1,20 @@
 # BigBasket Grocery Scraper - Products & Prices
 
-Collect public BigBasket grocery and household product catalog data by search keyword or category URL. The Actor returns clean, structured records containing product names, brands, pack sizes, current prices, MRP, discounts, ratings, availability, categories, images, and canonical product URLs.
+Collect public BigBasket grocery and household product catalog data by search keyword or category URL. The Actor returns clean, structured records containing product titles, brands, pack sizes, prices, MRP, discounts, ratings, availability, categories, image URLs, and canonical product URLs.
 
 The scraper uses BigBasket's public storefront listing service and initializes the anonymous regional cookies used by the website. India residential proxies are recommended because product availability and prices can vary by service area.
+
+For a low-cost first run, use the default sample input: `milk`, in-stock only, 10 products, and 1 page per source.
 
 ## Features
 
 - Search multiple grocery keywords in one run
 - Scrape supported BigBasket category and brand URLs
-- Process up to 1,000 unique products
+- Process up to 1,000 unique products, with small defaults for safe testing
 - Filter by exact brand name or in-stock availability
 - Deduplicate products globally by product ID
 - Export JSON, CSV, Excel, XML, RSS, or JSONL through Apify Dataset
-- Charge only after a real product record is saved
+- Save and charge each real product atomically, then stop at the user's spending limit
 
 ## How to Scrape BigBasket Products
 
@@ -25,12 +27,12 @@ The scraper uses BigBasket's public storefront listing service and initializes t
 
 ```json
 {
-  "keywords": ["milk", "rice"],
+  "keywords": ["milk"],
   "categoryUrls": [],
-  "brands": ["Amul"],
+  "brands": [],
   "inStockOnly": true,
-  "maxResults": 100,
-  "maxPagesPerSource": 5,
+  "maxResults": 10,
+  "maxPagesPerSource": 1,
   "proxyConfiguration": {
     "useApifyProxy": true,
     "apifyProxyGroups": ["RESIDENTIAL"],
@@ -43,29 +45,23 @@ The scraper uses BigBasket's public storefront listing service and initializes t
 
 ```json
 {
-  "sourceType": "keyword",
-  "source": "milk",
+  "source": "bigbasket",
+  "searchQuery": "milk",
   "position": 1,
   "productId": "40147597",
-  "productName": "Daily Health Toned Milk",
+  "title": "Daily Health Toned Milk",
   "brand": "Heritage",
-  "packSize": "500 ml",
-  "currentPrice": 32,
-  "marketPrice": 32,
+  "price": 32,
+  "mrp": null,
   "discountPercent": null,
-  "savingsAmount": null,
   "currency": "INR",
-  "unitPrice": "INR 0.06/ml",
+  "packSize": "500 ml",
+  "category": "Bakery, Cakes & Dairy",
   "rating": 3.7,
   "ratingCount": 18036,
-  "reviewCount": 181,
-  "soldText": "310K+ SOLD IN 1 MONTH",
-  "category": "Bakery, Cakes & Dairy",
-  "subcategory": "Fresh Milk",
   "inStock": true,
-  "expressDelivery": false,
-  "imageUrl": "https://www.bbassets.com/media/uploads/p/l/40147597_9-heritage-daily-health-toned-milk.jpg",
   "productUrl": "https://www.bigbasket.com/pd/40147597/heritage-daily-health-toned-milk-500-ml-pouch/",
+  "imageUrl": "https://www.bbassets.com/media/uploads/p/l/40147597_9-heritage-daily-health-toned-milk.jpg",
   "scrapedAt": "2026-06-13T08:00:00.000Z"
 }
 ```
@@ -84,9 +80,19 @@ The scraper uses BigBasket's public storefront listing service and initializes t
 |---|---:|---|
 | `product-scraped` | $0.002 | One clean product saved to the dataset |
 
+Products are charged only when a clean product record is saved. The Actor stops saving more products when the run's maximum charge is reached.
+
+Cost-control tips:
+
+- Start with one keyword, `maxResults: 10`, and `maxPagesPerSource: 1`.
+- Keep `inStockOnly` enabled for cleaner, smaller datasets.
+- Add category URLs, more keywords, or more pages only after the first run confirms the output fits your use case.
+- Use the run's maximum cost setting if you want a strict spending cap.
+- India residential proxy traffic is recommended for reliability and regional pricing.
+
 ## Data Notes
 
-BigBasket prices and availability are regional and can change frequently. Some products do not expose ratings, reviews, discounts, sold counts, or express-delivery status; those fields are returned as `null` or `false` rather than fabricated.
+BigBasket prices and availability are regional and can change frequently. Some products do not expose ratings, discounts, stock flags, images, or MRP; those fields are returned as `null` or `N/A` rather than fabricated.
 
 ## Responsible Use
 

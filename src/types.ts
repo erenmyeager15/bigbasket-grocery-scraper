@@ -16,29 +16,23 @@ export interface ActorInput {
 }
 
 export interface ProductRecord {
-    sourceType: 'keyword' | 'category';
-    source: string;
+    source: 'bigbasket';
+    searchQuery: string;
     position: number;
-    productId: string;
-    productName: string;
-    brand: string | null;
-    packSize: string | null;
-    currentPrice: number;
-    marketPrice: number | null;
+    productId: string | null;
+    title: string;
+    brand: string;
+    price: number | null;
+    mrp: number | null;
     discountPercent: number | null;
-    savingsAmount: number | null;
-    currency: 'INR';
-    unitPrice: string | null;
+    currency: string;
+    packSize: string;
+    category: string;
     rating: number | null;
     ratingCount: number | null;
-    reviewCount: number | null;
-    soldText: string | null;
-    category: string | null;
-    subcategory: string | null;
-    inStock: boolean;
-    expressDelivery: boolean;
+    inStock: boolean | null;
+    productUrl: string | null;
     imageUrl: string | null;
-    productUrl: string;
     scrapedAt: string;
 }
 

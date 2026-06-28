@@ -1,0 +1,14 @@
+{
+  "actorOutputSchemaVersion": 1,
+  "title": "BigBasket Grocery Scraper Output",
+  "description": "Structured BigBasket grocery product records with search queries, positions, product IDs, titles, brands, prices, MRP, discounts, pack sizes, categories, ratings, availability, image URLs, product URLs, and scraped timestamps.",
+  "type": "object",
+  "properties": {
+    "results": {
+      "type": "string",
+      "title": "BigBasket product records",
+      "description": "Clean dataset items containing public BigBasket product catalog, price, discount, rating, stock, image, and URL data.",
+      "template": "{{links.apiDefaultDatasetUrl}}/items"
+    }
+  }
+}

@@ -21,7 +21,22 @@ function cookieHeader(setCookie: string[] | string | undefined): string {
 
 function cleanText(value: unknown): string | null {
     const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+    if (text.toLowerCase() === 'proxied content') return null;
     return text || null;
+}
+
+function textOrNA(value: unknown): string {
+    return cleanText(value) ?? 'N/A';
+}
+
+function cleanImageUrl(value: unknown): string | null {
+    const url = cleanText(value);
+    if (!url) return null;
+    if (url.startsWith('//')) return `https:${url}`;
+    if (url.startsWith('http://')) return `https://${url.slice('http://'.length)}`;
+    if (url.startsWith('https://')) return url;
+    if (url.startsWith('/')) return new URL(url, BASE_URL).toString();
+    return null;
 }
 
 export function sourceFromKeyword(keyword: string): SourceDefinition {
@@ -119,28 +134,22 @@ export async function fetchProductPage(
         const baseUnit = cleanText(product.pricing?.discount?.prim_price?.base_unit);
 
         return [{
-            sourceType: source.sourceType,
-            source: source.source,
+            source: 'bigbasket',
+            searchQuery: textOrNA(source.source),
             position: ((page - 1) * Math.max(rawProducts.length, 1)) + index + 1,
             productId,
-            productName,
-            brand: cleanText(product.brand?.name),
-            packSize: cleanText(product.w),
-            currentPrice: price,
-            marketPrice,
+            title: productName,
+            brand: textOrNA(product.brand?.name),
+            price,
+            mrp: marketPrice,
             discountPercent,
-            savingsAmount: savings === null ? null : Number(savings.toFixed(2)),
             currency: 'INR',
-            unitPrice: basePrice && baseUnit ? `INR ${basePrice}/${baseUnit}` : null,
+            packSize: cleanText(product.w) ?? (basePrice && baseUnit ? `${basePrice}/${baseUnit}` : 'N/A'),
+            category: textOrNA(product.category?.tlc_name ?? product.category?.llc_name ?? product.category?.mlc_name),
             rating: numberOrNull(product.rating_info?.avg_rating),
             ratingCount: integerOrNull(product.rating_info?.rating_count),
-            reviewCount: integerOrNull(product.rating_info?.review_count),
-            soldText: cleanText(product.number_of_skus_sold),
-            category: cleanText(product.category?.tlc_name),
-            subcategory: cleanText(product.category?.llc_name ?? product.category?.mlc_name),
             inStock,
-            expressDelivery: product.availability?.show_express === true,
-            imageUrl: cleanText(product.images?.[0]?.l ?? product.images?.[0]?.m ?? product.images?.[0]?.s),
+            imageUrl: cleanImageUrl(product.images?.[0]?.l ?? product.images?.[0]?.m ?? product.images?.[0]?.s),
             productUrl: new URL(absoluteUrl, BASE_URL).toString(),
             scrapedAt: new Date().toISOString(),
         }];

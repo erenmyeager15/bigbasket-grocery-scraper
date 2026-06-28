@@ -5,12 +5,13 @@ import type { ActorInput, SourceDefinition } from './types.js';
 await Actor.init();
 
 const input = (await Actor.getInput<ActorInput>()) ?? {};
-const keywords = [...new Set((input.keywords ?? []).map((value) => value.trim()).filter(Boolean))];
 const categoryUrls = [...new Set((input.categoryUrls ?? []).map((value) => value.trim()).filter(Boolean))];
+const keywordInput = input.keywords ?? (categoryUrls.length === 0 ? ['milk'] : []);
+const keywords = [...new Set(keywordInput.map((value) => value.trim()).filter(Boolean))];
 const brands = new Set((input.brands ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean));
-const maxResults = Math.min(Math.max(input.maxResults ?? 100, 1), 1000);
-const maxPagesPerSource = Math.min(Math.max(input.maxPagesPerSource ?? 10, 1), 25);
-const inStockOnly = input.inStockOnly ?? false;
+const maxResults = Math.min(Math.max(input.maxResults ?? 10, 1), 1000);
+const maxPagesPerSource = Math.min(Math.max(input.maxPagesPerSource ?? 1, 1), 25);
+const inStockOnly = input.inStockOnly ?? true;
 
 if (keywords.length === 0 && categoryUrls.length === 0) {
     throw new Error('Provide at least one keyword or BigBasket category URL.');
@@ -32,6 +33,7 @@ const proxyConfiguration = await Actor.createProxyConfiguration(
 const seenProductIds = new Set<string>();
 let savedCount = 0;
 let spendingLimitReached = false;
+const skippedSources: Array<{ source: string; reason: string }> = [];
 
 for (const [sourceIndex, source] of sources.entries()) {
     if (spendingLimitReached) break;
@@ -56,21 +58,40 @@ for (const [sourceIndex, source] of sources.entries()) {
             }
         }
 
-        if (!result) throw lastError instanceof Error ? lastError : new Error(String(lastError));
+        if (!result) {
+            const reason = lastError instanceof Error ? lastError.message : String(lastError);
+            skippedSources.push({ source: source.source, reason });
+            log.warning('Skipping BigBasket source after repeated request failures', {
+                source: source.source,
+                page,
+                reason,
+            });
+            break;
+        }
+
         if (page === 1 && result.products.length === 0) {
-            throw new Error(`No BigBasket products found for ${source.source}`);
+            skippedSources.push({ source: source.source, reason: 'No products found on first page' });
+            log.warning('Skipping BigBasket source because first page returned no products', {
+                source: source.source,
+            });
+            break;
         }
 
         for (const product of result.products) {
             if (savedCount >= maxResults) break;
-            if (seenProductIds.has(product.productId)) continue;
+            const uniqueKey = product.productId ?? product.productUrl ?? product.title;
+            if (!uniqueKey || seenProductIds.has(uniqueKey)) continue;
             if (brands.size > 0 && (!product.brand || !brands.has(product.brand.toLowerCase()))) continue;
             if (inStockOnly && !product.inStock) continue;
 
-            seenProductIds.add(product.productId);
-            await Actor.pushData(product);
-            const chargeResult = await Actor.charge({ eventName: 'product-scraped' });
-            savedCount += 1;
+            // Push and charge atomically so records beyond the user's charge limit
+            // are not saved for free and billing failures stop the run immediately.
+            const chargeResult = await Actor.pushData(product, 'product-scraped');
+            const recordWasSaved = chargeResult.chargedCount > 0 || !chargeResult.eventChargeLimitReached;
+            if (recordWasSaved) {
+                seenProductIds.add(uniqueKey);
+                savedCount += 1;
+            }
 
             if (chargeResult.eventChargeLimitReached) {
                 spendingLimitReached = true;
@@ -84,6 +105,9 @@ for (const [sourceIndex, source] of sources.entries()) {
             productsFound: result.products.length,
             totalSaved: savedCount,
         });
+
+        if (spendingLimitReached) break;
+
         await Actor.setStatusMessage(`Saved ${savedCount}/${maxResults} BigBasket products`);
 
         if (page >= result.numberOfPages) break;
@@ -93,6 +117,13 @@ for (const [sourceIndex, source] of sources.entries()) {
 
 if (!spendingLimitReached) {
     await Actor.setStatusMessage(`Finished with ${savedCount} unique products`);
+}
+if (savedCount === 0 && !spendingLimitReached) {
+    const reasons = skippedSources.map((item) => `${item.source}: ${item.reason}`).join('; ');
+    throw new Error(`BigBasket scrape finished with no saved products.${reasons ? ` Skipped sources: ${reasons}` : ''}`);
+}
+if (skippedSources.length > 0) {
+    log.warning('Some BigBasket sources were skipped', { skippedSources });
 }
 log.info(`BigBasket scrape finished with ${savedCount} unique products.`);
 await Actor.exit();
