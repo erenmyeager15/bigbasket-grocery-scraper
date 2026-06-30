@@ -1,29 +1,35 @@
-# BigBasket Grocery Scraper - Products & Prices
+# BigBasket Grocery Scraper: Prices & Stock
 
-Collect public BigBasket grocery and household product catalog data by search keyword or category URL. The Actor returns clean, structured records containing product titles, brands, pack sizes, prices, MRP, discounts, ratings, availability, categories, image URLs, and canonical product URLs.
+Scrape public BigBasket grocery listing pages and export clean product rows from the Apify Dataset in JSON, CSV, Excel, XML, HTML, RSS, or JSONL. The Actor is built for grocery price monitoring, FMCG catalog research, assortment checks, and simple ecommerce reporting.
 
-The scraper uses BigBasket's public storefront listing service and initializes the anonymous regional cookies used by the website. India residential proxies are recommended because product availability and prices can vary by service area.
+It collects public product details such as title, brand, pack size, price, MRP, discount percentage, rating, rating count, stock status, category, image URL, product URL, and scrape timestamp. It does not require a BigBasket login or API key, and it does not collect private customer, account, seller, or contact data.
 
-For a low-cost first run, use the default sample input: `milk`, in-stock only, 10 products, and 1 page per source.
+The default run is intentionally small: one in-stock `milk` result with one result page and Apify Residential proxy in India.
 
-## Features
+## What you get
 
-- Search multiple grocery keywords in one run
-- Scrape supported BigBasket category and brand URLs
-- Process up to 1,000 unique products, with small defaults for safe testing
-- Filter by exact brand name or in-stock availability
-- Deduplicate products globally by product ID
-- Export JSON, CSV, Excel, XML, RSS, or JSONL through Apify Dataset
-- Save and charge each real product atomically, then stop at the user's spending limit
+- Search query or category URL source
+- Product position in the listing response
+- BigBasket product ID
+- Product title, brand, and pack size
+- Current price, MRP, discount percentage, and currency
+- Category name when visible in the listing payload
+- Rating and rating count when available
+- Stock status
+- Product URL and image URL
+- Timestamp for each saved row
 
-## How to Scrape BigBasket Products
+## Common uses
 
-1. Add one or more search keywords, category URLs, or both.
-2. Choose the maximum result and page limits.
-3. Optionally add brand filters or enable in-stock-only mode.
-4. Run the Actor and export the Products dataset view.
+1. Monitor grocery and FMCG prices, MRP, discounts, and availability.
+2. Compare pack sizes and brand pricing across grocery keywords.
+3. Build small category snapshots for reports or dashboards.
+4. Track assortment changes for key BigBasket category pages.
+5. Enrich internal catalog rows with public marketplace listing metadata.
 
-## Input
+## Quick start
+
+Use this input for a low-cost first run:
 
 ```json
 {
@@ -31,7 +37,7 @@ For a low-cost first run, use the default sample input: `milk`, in-stock only, 1
   "categoryUrls": [],
   "brands": [],
   "inStockOnly": true,
-  "maxResults": 10,
+  "maxResults": 1,
   "maxPagesPerSource": 1,
   "proxyConfiguration": {
     "useApifyProxy": true,
@@ -41,7 +47,23 @@ For a low-cost first run, use the default sample input: `milk`, in-stock only, 1
 }
 ```
 
+After the run finishes, open the dataset and export the `Products` view.
+
+## Input
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `keywords` | array | `["milk"]` | One to five grocery search terms. Leave empty only when using category URLs. |
+| `categoryUrls` | array | `[]` | Optional BigBasket listing URLs under `/pc/`, `/pb/`, or `/cl/`. Invalid category URLs are skipped when other sources are valid. |
+| `brands` | array | `[]` | Optional exact brand filters. Matching is case-insensitive. |
+| `inStockOnly` | boolean | `true` | Save only products that BigBasket marks available for sale. |
+| `maxResults` | integer | `1` | Maximum unique products saved across the run. Range: 1-1000. |
+| `maxPagesPerSource` | integer | `1` | Maximum pages requested for each keyword or category URL. Range: 1-25. |
+| `proxyConfiguration` | object | Residential India | Apify proxy settings. Residential India proxy is recommended for regional prices and availability. |
+
 ## Output
+
+A saved dataset row looks like this:
 
 ```json
 {
@@ -62,46 +84,58 @@ For a low-cost first run, use the default sample input: `milk`, in-stock only, 1
   "inStock": true,
   "productUrl": "https://www.bigbasket.com/pd/40147597/heritage-daily-health-toned-milk-500-ml-pouch/",
   "imageUrl": "https://www.bbassets.com/media/uploads/p/l/40147597_9-heritage-daily-health-toned-milk.jpg",
-  "scrapedAt": "2026-06-13T08:00:00.000Z"
+  "scrapedAt": "2026-06-30T10:00:00.000Z"
 }
 ```
 
-## Use Cases
-
-- Grocery and FMCG price monitoring
-- Retail catalog research
-- Brand and pack-size comparison
-- Discount and availability tracking
-- Assortment and category analysis
+Optional fields may be `null` or `N/A` when BigBasket does not expose them in the listing response.
 
 ## Pricing
 
-| Event | Price | Description |
-|---|---:|---|
-| `product-scraped` | $0.002 | One clean product saved to the dataset |
+This Actor uses Apify Pay Per Event pricing.
 
-Products are charged only when a clean product record is saved. The Actor stops saving more products when the run's maximum charge is reached.
+| Event | Price |
+| --- | ---: |
+| `product-scraped` | `$0.002` per saved product row |
+| `apify-actor-start` | `$0.00005` per GB when the Actor starts |
 
-Cost-control tips:
+Products are charged only when a clean product record is saved to the dataset. The Actor uses atomic dataset charging, so the run stops before saving unpaid records after the user's maximum charge is reached.
 
-- Start with one keyword, `maxResults: 10`, and `maxPagesPerSource: 1`.
-- Keep `inStockOnly` enabled for cleaner, smaller datasets.
-- Add category URLs, more keywords, or more pages only after the first run confirms the output fits your use case.
+Platform usage, such as compute and proxy traffic, may also be charged by Apify depending on the run configuration. Residential India proxy is recommended for BigBasket reliability and regional pricing, but it can increase platform usage cost.
+
+## Cost control
+
+- Start with one keyword and `maxResults: 1`.
+- Keep `maxPagesPerSource: 1` for the first test.
+- Keep `inStockOnly` enabled unless you need unavailable products.
+- Add more keywords, brands, or category pages only after checking the output.
 - Use the run's maximum cost setting if you want a strict spending cap.
-- India residential proxy traffic is recommended for reliability and regional pricing.
 
-## Data Notes
+## Reliability
 
-BigBasket prices and availability are regional and can change frequently. Some products do not expose ratings, discounts, stock flags, images, or MRP; those fields are returned as `null` or `N/A` rather than fabricated.
+BigBasket prices and availability vary by region and can change frequently. The Actor includes:
 
-## Responsible Use
+- Anonymous storefront cookie initialization before listing API requests
+- India residential proxy defaults
+- Retries for transient request failures
+- Deduplication by product ID, URL, or title
+- Invalid category URL skipping when at least one valid source remains
+- A zero-result failure guard so blocked or empty runs do not look successful
+- Field-level fallbacks when optional listing data is unavailable
 
-This Actor collects only publicly available, non-personal information. It does not collect personal contact details, account data, or private information.
+## Limits
 
-Users are responsible for ensuring their use complies with the source website's terms, robots.txt, applicable privacy laws, including India's DPDP Act, and all local regulations.
+- This Actor reads public listing data, not private account or order data.
+- Some product cards do not expose ratings, discounts, stock flags, images, or MRP.
+- Brand and category values come from BigBasket's listing payload and may need downstream cleaning for strict catalog workflows.
+- This Actor is not an official BigBasket API and is not affiliated with BigBasket.
 
-Do not use this Actor to collect, store, sell, or misuse personal data without a lawful basis. The Actor author is not responsible for misuse by end users.
+## Responsible use
+
+Use this Actor for lawful research, price monitoring, and analysis of publicly available information. You are responsible for complying with BigBasket's terms, robots.txt, privacy laws, India's DPDP Act where applicable, and all local regulations.
+
+Do not use this Actor to collect, infer, sell, or misuse personal data. The Actor author is not responsible for misuse by end users.
 
 ## License
 
-Apache-2.0
+Apache-2.0. See `LICENSE`.

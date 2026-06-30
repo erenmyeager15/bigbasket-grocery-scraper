@@ -1,21 +1,21 @@
 import { Actor, log } from 'apify';
 import { fetchProductPage, sourceFromCategoryUrl, sourceFromKeyword } from './bigbasket.js';
+import { normalizeInput } from './input.js';
 import type { ActorInput, SourceDefinition } from './types.js';
 
 await Actor.init();
 
 const input = (await Actor.getInput<ActorInput>()) ?? {};
-const categoryUrls = [...new Set((input.categoryUrls ?? []).map((value) => value.trim()).filter(Boolean))];
-const keywordInput = input.keywords ?? (categoryUrls.length === 0 ? ['milk'] : []);
-const keywords = [...new Set(keywordInput.map((value) => value.trim()).filter(Boolean))];
-const brands = new Set((input.brands ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean));
-const maxResults = Math.min(Math.max(input.maxResults ?? 10, 1), 1000);
-const maxPagesPerSource = Math.min(Math.max(input.maxPagesPerSource ?? 1, 1), 25);
-const inStockOnly = input.inStockOnly ?? true;
-
-if (keywords.length === 0 && categoryUrls.length === 0) {
-    throw new Error('Provide at least one keyword or BigBasket category URL.');
-}
+const normalizedInput = normalizeInput(input);
+const {
+    categoryUrls,
+    keywords,
+    maxResults,
+    maxPagesPerSource,
+    inStockOnly,
+    proxyConfiguration: proxyInput,
+} = normalizedInput;
+const brands = new Set(normalizedInput.brands.map((value) => value.toLowerCase()));
 
 const skippedSources: Array<{ source: string; reason: string }> = [];
 const sources: SourceDefinition[] = keywords.map(sourceFromKeyword);
@@ -38,11 +38,7 @@ if (sources.length === 0) {
 }
 
 const proxyConfiguration = await Actor.createProxyConfiguration(
-    input.proxyConfiguration ?? {
-        useApifyProxy: true,
-        apifyProxyGroups: ['RESIDENTIAL'],
-        apifyProxyCountry: 'IN',
-    },
+    proxyInput,
 );
 
 const seenProductIds = new Set<string>();

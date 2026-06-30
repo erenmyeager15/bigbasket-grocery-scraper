@@ -1,18 +1,31 @@
 {
   "actorSpecification": 1,
   "name": "bigbasket-grocery-scraper",
-  "title": "BigBasket Grocery Scraper - Products & Prices",
-  "description": "Collect public BigBasket grocery catalog data including brands, pack sizes, prices, discounts, ratings, availability, categories, images, and product URLs.",
+  "title": "BigBasket Grocery Scraper: Prices & Stock",
+  "description": "Scrape public BigBasket grocery listings for product titles, brands, pack sizes, prices, MRP, discounts, ratings, stock status, categories, images, and URLs.",
   "version": "1.0",
+  "buildTag": "latest",
   "dockerfile": "Dockerfile",
   "input": "../INPUT_SCHEMA.json",
   "readme": "../README.md",
+  "exampleRunInput": {
+    "body": "{\"keywords\":[\"milk\"],\"categoryUrls\":[],\"brands\":[],\"inStockOnly\":true,\"maxResults\":1,\"maxPagesPerSource\":1,\"proxyConfiguration\":{\"useApifyProxy\":true,\"apifyProxyGroups\":[\"RESIDENTIAL\"],\"apifyProxyCountry\":\"IN\"}}",
+    "contentType": "application/json; charset=utf-8"
+  },
   "output": "./output_schema.json",
-  "categories": ["ECOMMERCE", "AUTOMATION", "OTHER"],
+  "categories": ["ECOMMERCE", "AUTOMATION"],
+  "categoriesVersion": "1.0.0",
   "pricingInfo": {
     "pricingModel": "PAY_PER_EVENT",
     "pricingPerEvent": {
       "actorChargeEvents": {
+        "apify-actor-start": {
+          "eventTitle": "Actor Start",
+          "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+          "eventPriceUsd": 0.00005,
+          "isPrimaryEvent": false,
+          "isOneTimeEvent": true
+        },
         "product-scraped": {
           "eventTitle": "Product scraped",
           "eventDescription": "Charged once for each clean BigBasket product saved to the dataset.",
@@ -28,7 +41,9 @@
   },
   "defaultRunOptions": {
     "build": "latest",
-    "memoryMbytes": 1024,
-    "timeoutSecs": 3600
-  }
+    "memoryMbytes": 512,
+    "timeoutSecs": 900
+  },
+  "minMemoryMbytes": 256,
+  "maxMemoryMbytes": 2048
 }

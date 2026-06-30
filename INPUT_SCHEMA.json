@@ -1,6 +1,6 @@
 {
   "title": "BigBasket Grocery Scraper Input",
-  "description": "Search BigBasket or scrape public grocery category pages. Defaults are set for a low-cost milk price test.",
+  "description": "Search BigBasket or scrape public grocery category pages. Defaults save one in-stock milk result for a low-cost test.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
@@ -10,37 +10,47 @@
       "type": "array",
       "editor": "stringList",
       "default": ["milk"],
-      "prefill": ["milk"]
+      "prefill": ["milk"],
+      "items": { "type": "string" },
+      "maxItems": 5
     },
     "categoryUrls": {
       "title": "Category URLs",
       "description": "Optional BigBasket category URLs, such as https://www.bigbasket.com/pc/fruits-vegetables/fresh-vegetables/",
       "type": "array",
       "editor": "stringList",
-      "default": []
+      "default": [],
+      "prefill": [],
+      "items": { "type": "string" },
+      "maxItems": 10
     },
     "brands": {
       "title": "Brand filter",
       "description": "Optional exact brand names. Matching is case-insensitive.",
       "type": "array",
       "editor": "stringList",
-      "default": []
+      "default": [],
+      "prefill": [],
+      "items": { "type": "string" },
+      "maxItems": 20
     },
     "inStockOnly": {
       "title": "In-stock products only",
       "description": "Exclude products marked unavailable or not for sale. Keep enabled for smaller, cleaner test runs.",
       "type": "boolean",
       "editor": "checkbox",
-      "default": true
+      "default": true,
+      "prefill": true
     },
     "maxResults": {
       "title": "Maximum products",
-      "description": "Maximum unique products saved across the complete run. Start with 10 to keep usage low.",
+      "description": "Maximum unique products saved across the complete run. Start with 1 to keep usage low.",
       "type": "integer",
       "editor": "number",
       "minimum": 1,
       "maximum": 1000,
-      "default": 10
+      "default": 1,
+      "prefill": 1
     },
     "maxPagesPerSource": {
       "title": "Pages per source",
@@ -49,7 +59,8 @@
       "editor": "number",
       "minimum": 1,
       "maximum": 25,
-      "default": 1
+      "default": 1,
+      "prefill": 1
     },
     "proxyConfiguration": {
       "title": "Proxy configuration",

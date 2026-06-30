@@ -59,6 +59,53 @@ export function sourceFromCategoryUrl(value: string): SourceDefinition {
     return { sourceType: 'category', source: value, type: listingType, slug };
 }
 
+export function productsFromListingData(
+    data: Record<string, any>,
+    source: SourceDefinition,
+    page: number,
+): ProductRecord[] {
+    const productInfo = data.tabs?.[0]?.product_info ?? {};
+    const rawProducts: any[] = Array.isArray(productInfo.products) ? productInfo.products : [];
+
+    return rawProducts.flatMap((product, index): ProductRecord[] => {
+        const price = numberOrNull(product.pricing?.discount?.prim_price?.sp);
+        const marketPrice = numberOrNull(product.pricing?.discount?.mrp);
+        const productId = cleanText(product.id);
+        const productName = cleanText(product.desc);
+        const absoluteUrl = cleanText(product.absolute_url);
+        if (price === null || !productId || !productName || !absoluteUrl) return [];
+
+        const savings = marketPrice !== null && marketPrice > price ? marketPrice - price : null;
+        const discountPercent = savings !== null && marketPrice && marketPrice > 0
+            ? Math.round((savings / marketPrice) * 100)
+            : null;
+        const inStock = product.availability?.avail_status === '001' && product.availability?.not_for_sale !== true;
+        const basePrice = cleanText(product.pricing?.discount?.prim_price?.base_price);
+        const baseUnit = cleanText(product.pricing?.discount?.prim_price?.base_unit);
+
+        return [{
+            source: 'bigbasket',
+            searchQuery: textOrNA(source.source),
+            position: ((page - 1) * Math.max(rawProducts.length, 1)) + index + 1,
+            productId,
+            title: productName,
+            brand: textOrNA(product.brand?.name),
+            price,
+            mrp: marketPrice,
+            discountPercent,
+            currency: 'INR',
+            packSize: cleanText(product.w) ?? (basePrice && baseUnit ? `${basePrice}/${baseUnit}` : 'N/A'),
+            category: textOrNA(product.category?.tlc_name ?? product.category?.llc_name ?? product.category?.mlc_name),
+            rating: numberOrNull(product.rating_info?.avg_rating),
+            ratingCount: integerOrNull(product.rating_info?.rating_count),
+            inStock,
+            imageUrl: cleanImageUrl(product.images?.[0]?.l ?? product.images?.[0]?.m ?? product.images?.[0]?.s),
+            productUrl: new URL(absoluteUrl, BASE_URL).toString(),
+            scrapedAt: new Date().toISOString(),
+        }];
+    });
+}
+
 export async function fetchProductPage(
     source: SourceDefinition,
     page: number,
@@ -116,44 +163,7 @@ export async function fetchProductPage(
     }
 
     const productInfo = data.tabs?.[0]?.product_info ?? {};
-    const rawProducts: any[] = Array.isArray(productInfo.products) ? productInfo.products : [];
-    const products = rawProducts.flatMap((product, index): ProductRecord[] => {
-        const price = numberOrNull(product.pricing?.discount?.prim_price?.sp);
-        const marketPrice = numberOrNull(product.pricing?.discount?.mrp);
-        const productId = cleanText(product.id);
-        const productName = cleanText(product.desc);
-        const absoluteUrl = cleanText(product.absolute_url);
-        if (price === null || !productId || !productName || !absoluteUrl) return [];
-
-        const savings = marketPrice !== null && marketPrice > price ? marketPrice - price : null;
-        const discountPercent = savings !== null && marketPrice && marketPrice > 0
-            ? Math.round((savings / marketPrice) * 100)
-            : null;
-        const inStock = product.availability?.avail_status === '001' && product.availability?.not_for_sale !== true;
-        const basePrice = cleanText(product.pricing?.discount?.prim_price?.base_price);
-        const baseUnit = cleanText(product.pricing?.discount?.prim_price?.base_unit);
-
-        return [{
-            source: 'bigbasket',
-            searchQuery: textOrNA(source.source),
-            position: ((page - 1) * Math.max(rawProducts.length, 1)) + index + 1,
-            productId,
-            title: productName,
-            brand: textOrNA(product.brand?.name),
-            price,
-            mrp: marketPrice,
-            discountPercent,
-            currency: 'INR',
-            packSize: cleanText(product.w) ?? (basePrice && baseUnit ? `${basePrice}/${baseUnit}` : 'N/A'),
-            category: textOrNA(product.category?.tlc_name ?? product.category?.llc_name ?? product.category?.mlc_name),
-            rating: numberOrNull(product.rating_info?.avg_rating),
-            ratingCount: integerOrNull(product.rating_info?.rating_count),
-            inStock,
-            imageUrl: cleanImageUrl(product.images?.[0]?.l ?? product.images?.[0]?.m ?? product.images?.[0]?.s),
-            productUrl: new URL(absoluteUrl, BASE_URL).toString(),
-            scrapedAt: new Date().toISOString(),
-        }];
-    });
+    const products = productsFromListingData(data, source, page);
 
     return {
         products,
