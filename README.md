@@ -49,6 +49,12 @@ Use this input for a low-cost first run:
 
 After the run finishes, open the dataset and export the `Products` view.
 
+## Need Cross-Store Price Comparison?
+
+This Actor is designed for BigBasket-only catalog and price snapshots. To compare a product across BigBasket, Blinkit, Myntra, Meesho, and other supported India ecommerce sources, use the [India E-commerce Price Tracker](https://apify.com/fascinating_lentil/india-ecommerce-price-tracker).
+
+For reliable comparison, use the same city or delivery area across sources and keep product-match confidence visible when titles or variants differ.
+
 ## Input
 
 | Field | Type | Default | Description |
