@@ -49,6 +49,45 @@ Use this input for a low-cost first run:
 
 After the run finishes, open the dataset and export the `Products` view.
 
+## Schedule Price And Stock Monitoring
+
+Use an Apify Task and Schedule when you need recurring BigBasket price or availability
+snapshots. Start with a daily schedule; use a higher frequency only when the business
+need justifies the additional requests and cost.
+
+This example tracks up to five in-stock Amul milk listings:
+
+```json
+{
+  "keywords": ["milk"],
+  "categoryUrls": [],
+  "brands": ["Amul"],
+  "inStockOnly": true,
+  "maxResults": 5,
+  "maxPagesPerSource": 1,
+  "proxyConfiguration": {
+    "useApifyProxy": true,
+    "apifyProxyGroups": ["RESIDENTIAL"],
+    "apifyProxyCountry": "IN"
+  }
+}
+```
+
+1. Run the input once and confirm the returned products are relevant.
+2. Select **Save as a new task** on the Actor page.
+3. Open **Schedules**, create a daily schedule, and select the saved task.
+4. Compare rows between runs using `productId` or `productUrl` as the product key.
+5. Track `price`, `mrp`, `discountPercent`, `inStock`, and `scrapedAt` for changes.
+6. Export each run or connect a webhook/API workflow for downstream storage and alerts.
+
+The Actor returns a current public-listing snapshot. It does not maintain price history,
+match products across different stores, or send change alerts by itself. Store snapshots
+in your own table or workflow before calculating changes. Availability and prices are
+regional, so keep the same proxy country and delivery context when comparing runs.
+
+For cost control, begin with one keyword, one page, five or fewer results, and a daily
+schedule. Avoid duplicate schedules and aggressive polling.
+
 ## Need Cross-Store Price Comparison?
 
 This Actor is designed for BigBasket-only catalog and price snapshots. To compare a product across BigBasket, Blinkit, Myntra, Meesho, and other supported India ecommerce sources, use the [India E-commerce Price Tracker](https://apify.com/fascinating_lentil/india-ecommerce-price-tracker).
