@@ -181,6 +181,10 @@ Use this Actor for lawful research, price monitoring, and analysis of publicly a
 
 Do not use this Actor to collect, infer, sell, or misuse personal data. The Actor author is not responsible for misuse by end users.
 
+## Feedback
+
+If this Actor is useful in your workflow, consider leaving an honest review. Feedback helps guide reliability improvements.
+
 ## License
 
 Apache-2.0. See `LICENSE`.
