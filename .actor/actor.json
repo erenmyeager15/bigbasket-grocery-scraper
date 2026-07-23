@@ -2,7 +2,7 @@
   "actorSpecification": 1,
   "name": "bigbasket-grocery-scraper",
   "title": "BigBasket Grocery Scraper: Prices & Stock",
-  "description": "Scrape public BigBasket grocery listings for product titles, brands, pack sizes, prices, MRP, discounts, ratings, stock status, categories, images, and URLs.",
+  "description": "Unofficial, independently developed Actor for public BigBasket grocery listings. Extract product titles, brands, pack sizes, prices, MRP, discounts, ratings, stock status, categories, images, and URLs. Not affiliated with or endorsed by BigBasket.",
   "version": "1.0",
   "buildTag": "latest",
   "dockerfile": "Dockerfile",

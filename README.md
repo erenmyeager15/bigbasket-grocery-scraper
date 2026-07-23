@@ -2,6 +2,8 @@
 
 Scrape public BigBasket grocery listing pages and export clean product rows from the Apify Dataset in JSON, CSV, Excel, XML, HTML, RSS, or JSONL. The Actor is built for grocery price monitoring, FMCG catalog research, assortment checks, and simple ecommerce reporting.
 
+> **Unofficial Actor:** This Actor is independently developed and is not affiliated with, endorsed by, or sponsored by BigBasket.
+
 It collects public product details such as title, brand, pack size, price, MRP, discount percentage, rating, rating count, stock status, category, image URL, product URL, and scrape timestamp. It does not require a BigBasket login or API key, and it does not collect private customer, account, seller, or contact data.
 
 The default run is intentionally small: one in-stock `milk` result with one result page and Apify Residential proxy in India.
