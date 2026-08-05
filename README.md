@@ -185,13 +185,6 @@ Do not use this Actor to collect, infer, sell, or misuse personal data. The Acto
 
 If this Actor is useful in your workflow, consider leaving an honest review. Feedback helps guide reliability improvements.
 
-### Request a field or filter
-
-Need another public product field, filter, or output format? Open an Issue on this
-Actor and describe the result you need. Do not include account credentials, order
-data, customer information, or other personal data. Additional sources are considered
-only when their permission and data rights can be verified.
-
 ## License
 
 Apache-2.0. See `LICENSE`.
