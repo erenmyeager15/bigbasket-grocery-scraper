@@ -1,0 +1,29 @@
+{
+  "actId": "6lELBXBghafRyOCN5",
+  "name": "monitor-bigbasket-prices-and-stock",
+  "title": "Monitor BigBasket Prices and Stock",
+  "options": {
+    "build": "latest",
+    "memoryMbytes": 512,
+    "timeoutSecs": 900
+  },
+  "input": {
+    "keywords": [
+      "milk",
+      "rice",
+      "cooking oil"
+    ],
+    "categoryUrls": [],
+    "brands": [],
+    "inStockOnly": false,
+    "maxResults": 30,
+    "maxPagesPerSource": 1,
+    "proxyConfiguration": {
+      "useApifyProxy": true,
+      "apifyProxyGroups": [
+        "RESIDENTIAL"
+      ],
+      "apifyProxyCountry": "IN"
+    }
+  }
+}

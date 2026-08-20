@@ -1,0 +1,27 @@
+{
+  "actId": "6lELBXBghafRyOCN5",
+  "name": "export-bigbasket-category-catalog",
+  "title": "Export a BigBasket Category Catalog",
+  "options": {
+    "build": "latest",
+    "memoryMbytes": 512,
+    "timeoutSecs": 900
+  },
+  "input": {
+    "keywords": [],
+    "categoryUrls": [
+      "https://www.bigbasket.com/pc/fruits-vegetables/fresh-vegetables/"
+    ],
+    "brands": [],
+    "inStockOnly": true,
+    "maxResults": 100,
+    "maxPagesPerSource": 3,
+    "proxyConfiguration": {
+      "useApifyProxy": true,
+      "apifyProxyGroups": [
+        "RESIDENTIAL"
+      ],
+      "apifyProxyCountry": "IN"
+    }
+  }
+}

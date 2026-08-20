@@ -1,0 +1,27 @@
+{
+  "actId": "6lELBXBghafRyOCN5",
+  "name": "collect-bigbasket-prices-mrp-discounts",
+  "title": "Collect BigBasket Prices, MRP and Discounts",
+  "options": {
+    "build": "latest",
+    "memoryMbytes": 512,
+    "timeoutSecs": 900
+  },
+  "input": {
+    "keywords": [
+      "detergent"
+    ],
+    "categoryUrls": [],
+    "brands": [],
+    "inStockOnly": true,
+    "maxResults": 25,
+    "maxPagesPerSource": 1,
+    "proxyConfiguration": {
+      "useApifyProxy": true,
+      "apifyProxyGroups": [
+        "RESIDENTIAL"
+      ],
+      "apifyProxyCountry": "IN"
+    }
+  }
+}

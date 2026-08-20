@@ -27,6 +27,16 @@ The default run is intentionally small: one in-stock `milk` result with one resu
 4. Track assortment changes for key BigBasket category pages.
 5. Enrich internal catalog rows with public marketplace listing metadata.
 
+## Ready-to-run workflows
+
+Use these public task pages when you want a prepared input instead of configuring a run from scratch:
+
+- [Monitor BigBasket prices and stock](https://apify.com/fascinating_lentil/bigbasket-grocery-scraper/examples/monitor-bigbasket-prices-and-stock)
+- [Collect BigBasket prices, MRP and discounts](https://apify.com/fascinating_lentil/bigbasket-grocery-scraper/examples/collect-bigbasket-prices-mrp-discounts)
+- [Export a BigBasket category catalog](https://apify.com/fascinating_lentil/bigbasket-grocery-scraper/examples/export-bigbasket-category-catalog)
+
+For the complete scheduled-run, Google Sheets, and webhook setup, see the [BigBasket Price Watch Kit](BIGBASKET-PRICE-WATCH-KIT.md). A short recording outline is available in the [demo script](VIDEO-DEMO-SCRIPT.md).
+
 ## Quick start
 
 Use this input for a low-cost first run:
