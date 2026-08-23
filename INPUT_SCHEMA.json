@@ -62,6 +62,25 @@
       "default": 1,
       "prefill": 1
     },
+    "trackChanges": {
+      "title": "Track price and stock changes",
+      "description": "Compare each product with its previous saved state in a persistent named key-value store. Keep the same delivery/proxy context across scheduled runs.",
+      "type": "boolean",
+      "editor": "checkbox",
+      "default": false,
+      "prefill": false
+    },
+    "trackingStoreName": {
+      "title": "Tracking store name",
+      "description": "Persistent store used when change tracking is enabled. Use a different name for each delivery region or monitoring workflow.",
+      "type": "string",
+      "editor": "textfield",
+      "default": "bigbasket-price-history",
+      "prefill": "bigbasket-price-history",
+      "minLength": 3,
+      "maxLength": 63,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
     "proxyConfiguration": {
       "title": "Proxy configuration",
       "description": "India residential proxies are recommended for regional availability and pricing.",

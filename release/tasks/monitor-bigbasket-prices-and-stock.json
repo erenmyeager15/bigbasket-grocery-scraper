@@ -18,6 +18,8 @@
     "inStockOnly": false,
     "maxResults": 30,
     "maxPagesPerSource": 1,
+    "trackChanges": true,
+    "trackingStoreName": "bigbasket-price-history",
     "proxyConfiguration": {
       "useApifyProxy": true,
       "apifyProxyGroups": [

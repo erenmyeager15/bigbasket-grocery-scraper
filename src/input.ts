@@ -7,6 +7,8 @@ export interface NormalizedInput {
     inStockOnly: boolean;
     maxResults: number;
     maxPagesPerSource: number;
+    trackChanges: boolean;
+    trackingStoreName: string;
     proxyConfiguration: ProxyInput;
 }
 
@@ -58,6 +60,17 @@ function asProxyConfiguration(value: unknown): ProxyInput {
     return value as ProxyInput;
 }
 
+function asTrackingStoreName(value: unknown): string {
+    if (value === undefined || value === null || value === '') return 'bigbasket-price-history';
+    if (typeof value !== 'string') fail('must be a string.', 'trackingStoreName');
+
+    const trimmed = value.trim();
+    if (!/^[A-Za-z0-9_-]{3,63}$/.test(trimmed)) {
+        fail('must be 3-63 characters using only letters, numbers, underscores, or hyphens.', 'trackingStoreName');
+    }
+    return trimmed;
+}
+
 export function normalizeInput(raw: ActorInput = {}): NormalizedInput {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('Input must be a JSON object.');
 
@@ -77,6 +90,8 @@ export function normalizeInput(raw: ActorInput = {}): NormalizedInput {
         inStockOnly: asBoolean(raw.inStockOnly, 'inStockOnly', true),
         maxResults: asIntInRange(raw.maxResults, 'maxResults', 1, 1, 1000),
         maxPagesPerSource: asIntInRange(raw.maxPagesPerSource, 'maxPagesPerSource', 1, 1, 25),
+        trackChanges: asBoolean(raw.trackChanges, 'trackChanges', false),
+        trackingStoreName: asTrackingStoreName(raw.trackingStoreName),
         proxyConfiguration: asProxyConfiguration(raw.proxyConfiguration),
     };
 }

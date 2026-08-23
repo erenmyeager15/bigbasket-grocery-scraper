@@ -1,6 +1,6 @@
 # BigBasket Grocery Scraper: Prices & Stock
 
-Scrape public BigBasket grocery listing pages and export clean product rows from the Apify Dataset in JSON, CSV, Excel, XML, HTML, RSS, or JSONL. The Actor is built for grocery price monitoring, FMCG catalog research, assortment checks, and simple ecommerce reporting.
+Scrape public BigBasket grocery listing pages and export clean product rows from the Apify Dataset in JSON, CSV, Excel, XML, HTML, RSS, or JSONL. The Actor is built for grocery price monitoring, FMCG catalog research, assortment checks, and simple ecommerce reporting. Optional persistent tracking compares every product with its previous run and labels price drops, price increases, and stock changes.
 
 It collects public product details such as title, brand, pack size, price, MRP, discount percentage, rating, rating count, stock status, category, image URL, product URL, and scrape timestamp. It does not require a BigBasket login or API key, and it does not collect private customer, account, seller, or contact data.
 
@@ -16,6 +16,8 @@ The default run is intentionally small: one in-stock `milk` result with one resu
 - Category name when visible in the listing payload
 - Rating and rating count when available
 - Stock status
+- Optional previous price, price change, price-change percentage, and stock-change fields
+- Change labels: `new`, `unchanged`, `price_drop`, `price_increase`, `back_in_stock`, or `out_of_stock`
 - Product URL and image URL
 - Timestamp for each saved row
 
@@ -65,16 +67,18 @@ Use an Apify Task and Schedule when you need recurring BigBasket price or availa
 snapshots. Start with a daily schedule; use a higher frequency only when the business
 need justifies the additional requests and cost.
 
-This example tracks up to five in-stock Amul milk listings:
+This example tracks up to five Amul milk listings. The named key-value store keeps each product's previous state between scheduled runs:
 
 ```json
 {
   "keywords": ["milk"],
   "categoryUrls": [],
   "brands": ["Amul"],
-  "inStockOnly": true,
+  "inStockOnly": false,
   "maxResults": 5,
   "maxPagesPerSource": 1,
+  "trackChanges": true,
+  "trackingStoreName": "bigbasket-mumbai-milk-watch",
   "proxyConfiguration": {
     "useApifyProxy": true,
     "apifyProxyGroups": ["RESIDENTIAL"],
@@ -86,14 +90,15 @@ This example tracks up to five in-stock Amul milk listings:
 1. Run the input once and confirm the returned products are relevant.
 2. Select **Save as a new task** on the Actor page.
 3. Open **Schedules**, create a daily schedule, and select the saved task.
-4. Compare rows between runs using `productId` or `productUrl` as the product key.
-5. Track `price`, `mrp`, `discountPercent`, `inStock`, and `scrapedAt` for changes.
-6. Export each run or connect a webhook/API workflow for downstream storage and alerts.
+4. The first run marks each product as `new` and establishes the baseline.
+5. Later runs populate `previousPrice`, `priceChange`, `priceChangePercent`, `previousInStock`, `stockChanged`, and `changeType`.
+6. Filter `changeDetected: true`, or connect a webhook/API workflow for downstream alerts.
 
-The Actor returns a current public-listing snapshot. It does not maintain price history,
-match products across different stores, or send change alerts by itself. Store snapshots
-in your own table or workflow before calculating changes. Availability and prices are
-regional, so keep the same proxy country and delivery context when comparing runs.
+The tracking store keeps the latest previous state, not a complete time series. Export
+each run to your own table when you need full historical charts. The Actor does not match
+products across different stores or send messages by itself. Availability and prices are
+regional, so use a separate `trackingStoreName` for every delivery region and keep the same
+proxy/delivery context when comparing runs.
 
 For cost control, begin with one keyword, one page, five or fewer results, and a daily
 schedule. Avoid duplicate schedules and aggressive polling.
@@ -114,6 +119,8 @@ For reliable comparison, use the same city or delivery area across sources and k
 | `inStockOnly` | boolean | `true` | Save only products that BigBasket marks available for sale. |
 | `maxResults` | integer | `1` | Maximum unique products saved across the run. Range: 1-1000. |
 | `maxPagesPerSource` | integer | `1` | Maximum pages requested for each keyword or category URL. Range: 1-25. |
+| `trackChanges` | boolean | `false` | Compare each result with the previous product state stored across runs. |
+| `trackingStoreName` | string | `bigbasket-price-history` | Named persistent store used for tracking. Use one name per delivery region/workflow. |
 | `proxyConfiguration` | object | Residential India | Apify proxy settings. Residential India proxy is recommended for regional prices and availability. |
 
 ## Output
@@ -137,6 +144,16 @@ A saved dataset row looks like this:
   "rating": 3.7,
   "ratingCount": 18036,
   "inStock": true,
+  "trackingEnabled": true,
+  "changeDetected": true,
+  "changeType": "price_drop",
+  "previousPrice": 35,
+  "priceChange": -3,
+  "priceChangePercent": -8.57,
+  "previousInStock": true,
+  "stockChanged": false,
+  "firstSeenAt": "2026-06-29T10:00:00.000Z",
+  "previousScrapedAt": "2026-06-29T10:00:00.000Z",
   "productUrl": "https://www.bigbasket.com/pd/40147597/heritage-daily-health-toned-milk-500-ml-pouch/",
   "imageUrl": "https://www.bbassets.com/media/uploads/p/l/40147597_9-heritage-daily-health-toned-milk.jpg",
   "scrapedAt": "2026-06-30T10:00:00.000Z"
@@ -177,12 +194,16 @@ BigBasket prices and availability vary by region and can change frequently. The 
 - Invalid category URL skipping when at least one valid source remains
 - A zero-result failure guard so blocked or empty runs do not look successful
 - Field-level fallbacks when optional listing data is unavailable
+- Optional persistent previous-state tracking in a named key-value store
+- Machine-readable price and availability change labels for scheduled workflows
 
 ## Limits
 
 - This Actor reads public listing data, not private account or order data.
 - Some product cards do not expose ratings, discounts, stock flags, images, or MRP.
 - Brand and category values come from BigBasket's listing payload and may need downstream cleaning for strict catalog workflows.
+- Built-in tracking stores only the latest previous state, not every historical observation.
+- Regional comparisons require a consistent delivery/proxy context and a separate tracking store per region.
 - This Actor is not an official BigBasket API and is not affiliated with BigBasket.
 
 ## Responsible use

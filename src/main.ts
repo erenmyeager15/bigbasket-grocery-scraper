@@ -1,7 +1,8 @@
 import { Actor, log } from 'apify';
 import { fetchProductPage, sourceFromCategoryUrl, sourceFromKeyword } from './bigbasket.js';
 import { normalizeInput } from './input.js';
-import type { ActorInput, SourceDefinition } from './types.js';
+import { parseProductSnapshot, trackProduct, trackingKey } from './tracking.js';
+import type { ActorInput, ProductSnapshot, SourceDefinition } from './types.js';
 
 await Actor.init();
 
@@ -13,6 +14,8 @@ const {
     maxResults,
     maxPagesPerSource,
     inStockOnly,
+    trackChanges,
+    trackingStoreName,
     proxyConfiguration: proxyInput,
 } = normalizedInput;
 const brands = new Set(normalizedInput.brands.map((value) => value.toLowerCase()));
@@ -40,6 +43,13 @@ if (sources.length === 0) {
 const proxyConfiguration = await Actor.createProxyConfiguration(
     proxyInput,
 );
+const trackingStore = trackChanges
+    ? await Actor.openKeyValueStore(trackingStoreName)
+    : null;
+
+if (trackingStore) {
+    log.info('Run-to-run price and stock tracking enabled', { trackingStoreName });
+}
 
 const seenProductIds = new Set<string>();
 let savedCount = 0;
@@ -94,13 +104,36 @@ for (const [sourceIndex, source] of sources.entries()) {
             if (brands.size > 0 && (!product.brand || !brands.has(product.brand.toLowerCase()))) continue;
             if (inStockOnly && !product.inStock) continue;
 
+            let datasetRecord = product;
+            let snapshot: ProductSnapshot | null = null;
+            let snapshotKey: string | null = null;
+
+            if (trackingStore) {
+                snapshotKey = trackingKey(product);
+                const previous = parseProductSnapshot(await trackingStore.getValue(snapshotKey));
+                const tracked = trackProduct(product, previous);
+                datasetRecord = tracked.record;
+                snapshot = tracked.snapshot;
+            }
+
             // Push and charge atomically so records beyond the user's charge limit
             // are not saved for free and billing failures stop the run immediately.
-            const chargeResult = await Actor.pushData(product, 'product-scraped');
+            const chargeResult = await Actor.pushData(datasetRecord, 'product-scraped');
             const recordWasSaved = chargeResult.chargedCount > 0 || !chargeResult.eventChargeLimitReached;
             if (recordWasSaved) {
                 seenProductIds.add(uniqueKey);
                 savedCount += 1;
+
+                if (trackingStore && snapshot && snapshotKey) {
+                    try {
+                        await trackingStore.setValue(snapshotKey, snapshot);
+                    } catch (error) {
+                        log.warning('Product was saved, but its tracking snapshot could not be updated', {
+                            productId: product.productId,
+                            error: String(error),
+                        });
+                    }
+                }
             }
 
             if (chargeResult.eventChargeLimitReached) {

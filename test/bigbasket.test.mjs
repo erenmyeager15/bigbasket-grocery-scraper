@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { productsFromListingData, sourceFromCategoryUrl, sourceFromKeyword } from '../dist/bigbasket.js';
 import { normalizeInput } from '../dist/input.js';
+import { parseProductSnapshot, trackProduct, trackingKey } from '../dist/tracking.js';
 
 const listingPayload = {
     tabs: [
@@ -62,9 +63,26 @@ test('normalizes default input to one low-cost milk run', () => {
     assert.equal(input.inStockOnly, true);
     assert.equal(input.maxResults, 1);
     assert.equal(input.maxPagesPerSource, 1);
+    assert.equal(input.trackChanges, false);
+    assert.equal(input.trackingStoreName, 'bigbasket-price-history');
     assert.equal(input.proxyConfiguration.useApifyProxy, true);
     assert.deepEqual(input.proxyConfiguration.apifyProxyGroups, ['RESIDENTIAL']);
     assert.equal(input.proxyConfiguration.apifyProxyCountry, 'IN');
+});
+
+test('validates optional run-to-run tracking settings', () => {
+    const input = normalizeInput({
+        keywords: ['milk'],
+        trackChanges: true,
+        trackingStoreName: 'mumbai-milk-watch',
+    });
+
+    assert.equal(input.trackChanges, true);
+    assert.equal(input.trackingStoreName, 'mumbai-milk-watch');
+    assert.throws(
+        () => normalizeInput({ keywords: ['milk'], trackingStoreName: 'bad store name' }),
+        /trackingStoreName/,
+    );
 });
 
 test('allows category-only input and rejects oversized input', () => {
@@ -126,4 +144,45 @@ test('parses listing payload into clean product records', () => {
     assert.equal(products[0].inStock, true);
     assert.equal(products[0].productUrl, 'https://www.bigbasket.com/pd/40147597/heritage-daily-health-toned-milk-500-ml-pouch/');
     assert.equal(products[0].imageUrl, 'https://www.bbassets.com/media/uploads/p/l/40147597_9-heritage-daily-health-toned-milk.jpg');
+});
+
+test('tracks a new product and a later price drop', () => {
+    const product = productsFromListingData(listingPayload, sourceFromKeyword('milk'), 1)[0];
+    assert.equal(trackingKey(product), 'PRODUCT_40147597');
+
+    const first = trackProduct(product, null);
+    assert.equal(first.record.changeType, 'new');
+    assert.equal(first.record.changeDetected, false);
+    assert.equal(first.record.previousPrice, null);
+    assert.equal(first.snapshot.price, 32);
+
+    const changed = trackProduct({
+        ...product,
+        price: 28,
+        inStock: false,
+        scrapedAt: '2026-08-24T10:00:00.000Z',
+    }, first.snapshot);
+
+    assert.equal(changed.record.changeType, 'price_drop');
+    assert.equal(changed.record.changeDetected, true);
+    assert.equal(changed.record.previousPrice, 32);
+    assert.equal(changed.record.priceChange, -4);
+    assert.equal(changed.record.priceChangePercent, -12.5);
+    assert.equal(changed.record.previousInStock, true);
+    assert.equal(changed.record.stockChanged, true);
+    assert.equal(changed.record.previousScrapedAt, product.scrapedAt);
+    assert.equal(parseProductSnapshot(changed.snapshot)?.price, 28);
+});
+
+test('does not report a price change when both observations have no price', () => {
+    const product = {
+        ...productsFromListingData(listingPayload, sourceFromKeyword('milk'), 1)[0],
+        price: null,
+    };
+    const first = trackProduct(product, null);
+    const second = trackProduct({ ...product, scrapedAt: '2026-08-24T10:00:00.000Z' }, first.snapshot);
+
+    assert.equal(second.record.priceChange, null);
+    assert.equal(second.record.changeType, 'unchanged');
+    assert.equal(second.record.changeDetected, false);
 });

@@ -1,6 +1,6 @@
 # BigBasket Price Watch Kit
 
-Use this kit to turn BigBasket listing snapshots into a repeatable price, stock, and catalog workflow. The Actor collects the current public listing state. Your connected table or automation stores history and calculates changes.
+Use this kit to turn BigBasket listings into a repeatable price, stock, and catalog workflow. The Actor can retain the previous product state in a named key-value store and calculate changes automatically. Your connected table or automation is still recommended when you need a complete time series.
 
 ## Ready-to-run tasks
 
@@ -15,9 +15,9 @@ Start with the published defaults. Change the keywords, category URL, brands, an
 1. Create a task from the price-and-stock example.
 2. Keep one page per source and a small result limit while validating it.
 3. Create an Apify Schedule and run the task once per day.
-4. Store every successful run in a table using `productId` as the primary key and `scrapedAt` as the observation time.
-5. Compare `price`, `mrp`, `discountPercent`, and `inStock` with the previous observation.
-6. Alert only when a tracked value changes.
+4. Enable `trackChanges` and choose one stable `trackingStoreName` for the workflow.
+5. The first run creates a baseline; later runs populate `previousPrice`, `priceChange`, `priceChangePercent`, `previousInStock`, `stockChanged`, and `changeType`.
+6. Alert only when `changeDetected` is `true`. Store every successful run externally if you also need a complete historical series.
 
 Do not compare runs that use different delivery regions or proxy countries. BigBasket prices and availability can vary by location.
 
@@ -42,14 +42,15 @@ Store the Apify API token in the workflow platform's secret manager. Never put i
 ## Suggested Google Sheets columns
 
 ```text
-productId, title, brand, packSize, price, mrp, discountPercent, inStock,
-category, productUrl, imageUrl, searchQuery, scrapedAt
+productId, title, brand, packSize, price, previousPrice, priceChange,
+priceChangePercent, changeType, changeDetected, mrp, discountPercent, inStock,
+previousInStock, stockChanged, category, productUrl, imageUrl, searchQuery, scrapedAt
 ```
 
 For a change log, add:
 
 ```text
-previousPrice, priceChange, previousStock, stockChanged, observedAt
+firstSeenAt, previousScrapedAt, observedAt
 ```
 
 ## Cost controls
@@ -62,4 +63,4 @@ previousPrice, priceChange, previousStock, stockChanged, observedAt
 
 ## Scope
 
-This kit monitors public BigBasket listing snapshots only. It does not provide customer data, order data, cross-store product matching, automatic repricing, or built-in historical storage. Review source terms and applicable law before using the workflow.
+This kit monitors public BigBasket listings only. Its built-in store retains the latest previous state, not a full observation history. It does not provide customer data, order data, cross-store product matching, automatic repricing, or outbound notifications. Review source terms and applicable law before using the workflow.
