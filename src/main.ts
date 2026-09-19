@@ -54,6 +54,7 @@ if (trackingStore) {
 const seenProductIds = new Set<string>();
 let savedCount = 0;
 let spendingLimitReached = false;
+let successfulPageCount = 0;
 
 for (const [sourceIndex, source] of sources.entries()) {
     if (spendingLimitReached) break;
@@ -89,9 +90,10 @@ for (const [sourceIndex, source] of sources.entries()) {
             break;
         }
 
+        successfulPageCount += 1;
+
         if (page === 1 && result.products.length === 0) {
-            skippedSources.push({ source: source.source, reason: 'No products found on first page' });
-            log.warning('Skipping BigBasket source because first page returned no products', {
+            log.info('BigBasket source returned no matching products', {
                 source: source.source,
             });
             break;
@@ -161,7 +163,7 @@ for (const [sourceIndex, source] of sources.entries()) {
 if (!spendingLimitReached) {
     await Actor.setStatusMessage(`Finished with ${savedCount} unique products`);
 }
-if (savedCount === 0 && !spendingLimitReached) {
+if (savedCount === 0 && successfulPageCount === 0 && !spendingLimitReached) {
     const reasons = skippedSources.map((item) => `${item.source}: ${item.reason}`).join('; ');
     throw new Error(`BigBasket scrape finished with no saved products.${reasons ? ` Skipped sources: ${reasons}` : ''}`);
 }

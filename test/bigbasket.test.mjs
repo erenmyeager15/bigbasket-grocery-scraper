@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { productsFromListingData, sourceFromCategoryUrl, sourceFromKeyword } from '../dist/bigbasket.js';
+import {
+    buildListingEndpoint,
+    productsFromListingData,
+    sourceFromCategoryUrl,
+    sourceFromKeyword,
+} from '../dist/bigbasket.js';
 import { normalizeInput } from '../dist/input.js';
 import { parseProductSnapshot, trackProduct, trackingKey } from '../dist/tracking.js';
 
@@ -120,6 +125,15 @@ test('builds and validates BigBasket source definitions', () => {
         () => sourceFromCategoryUrl('https://example.com/pc/fruits-vegetables/'),
         /bigbasket\.com/,
     );
+});
+
+test('uses BigBasket canonical listing endpoint with its required trailing slash', () => {
+    const endpoint = buildListingEndpoint(sourceFromKeyword('google Pixel 9a'), 2);
+
+    assert.equal(endpoint.pathname, '/listing-svc/v2/products/');
+    assert.equal(endpoint.searchParams.get('type'), 'ps');
+    assert.equal(endpoint.searchParams.get('slug'), 'google Pixel 9a');
+    assert.equal(endpoint.searchParams.get('page'), '2');
 });
 
 test('parses listing payload into clean product records', () => {

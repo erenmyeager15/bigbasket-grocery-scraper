@@ -1,8 +1,9 @@
 import { gotScraping } from 'got-scraping';
+import { randomUUID } from 'node:crypto';
 import type { ProductRecord, SourceDefinition } from './types.js';
 
 const BASE_URL = 'https://www.bigbasket.com';
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/137.0.0.0 Safari/537.36';
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36';
 
 function numberOrNull(value: unknown): number | null {
     const parsed = Number.parseFloat(String(value ?? ''));
@@ -57,6 +58,16 @@ export function sourceFromCategoryUrl(value: string): SourceDefinition {
     }
 
     return { sourceType: 'category', source: value, type: listingType, slug };
+}
+
+export function buildListingEndpoint(source: SourceDefinition, page: number): URL {
+    // BigBasket's Akamai configuration currently rejects the non-trailing-slash
+    // route with HTTP 403 while the canonical trailing-slash route works.
+    const endpoint = new URL('/listing-svc/v2/products/', BASE_URL);
+    endpoint.searchParams.set('type', source.type);
+    endpoint.searchParams.set('slug', source.slug);
+    endpoint.searchParams.set('page', String(page));
+    return endpoint;
 }
 
 export function productsFromListingData(
@@ -131,24 +142,25 @@ export async function fetchProductPage(
     if (landing.statusCode >= 400) throw new Error(`BigBasket landing page returned HTTP ${landing.statusCode}`);
 
     const cookie = cookieHeader(landing.headers['set-cookie']);
-    const endpoint = new URL('/listing-svc/v2/products', BASE_URL);
-    endpoint.searchParams.set('type', source.type);
-    endpoint.searchParams.set('slug', source.slug);
-    endpoint.searchParams.set('page', String(page));
+    const endpoint = buildListingEndpoint(source, page);
 
     const response = await gotScraping({
         url: endpoint,
         proxyUrl,
         headers: {
             ...commonHeaders,
-            accept: 'application/json, text/plain, */*',
+            accept: '*/*',
             referer: landingUrl,
             cookie,
+            'content-type': 'application/json',
+            'x-requested-with': 'XMLHttpRequest',
             'osmos-enabled': 'true',
             'x-channel': 'BB-WEB',
             'x-caller': 'UIKIRK',
+            'x-tracker': randomUUID(),
             'x-entry-context': 'bb-b2c',
             'x-entry-context-id': '100',
+            'x-integrated-fc-door-visible': 'true',
             'common-client-static-version': '101',
         },
         responseType: 'text',
