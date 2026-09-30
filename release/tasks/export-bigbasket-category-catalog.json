@@ -16,6 +16,7 @@
     "inStockOnly": true,
     "maxResults": 100,
     "maxPagesPerSource": 3,
+    "trackChanges": false,
     "proxyConfiguration": {
       "useApifyProxy": true,
       "apifyProxyGroups": [

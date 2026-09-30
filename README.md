@@ -1,6 +1,6 @@
 # BigBasket Grocery Scraper: Prices & Stock
 
-Scrape public BigBasket grocery listing pages and export clean product rows from the Apify Dataset in JSON, CSV, Excel, XML, HTML, RSS, or JSONL. The Actor is built for grocery price monitoring, FMCG catalog research, assortment checks, and simple ecommerce reporting. Optional persistent tracking compares every product with its previous run and labels price drops, price increases, and stock changes.
+Scrape public BigBasket grocery listings with normalized pack quantities, comparable unit prices, source-context provenance, and optional price and stock monitoring. Export product rows from the Apify Dataset in JSON, CSV, Excel, XML, HTML, RSS, or JSONL. Tracking retains a bounded observation history and exposes thresholded alerts for downstream workflows.
 
 It collects public product details such as title, brand, pack size, price, MRP, discount percentage, rating, rating count, stock status, category, image URL, product URL, and scrape timestamp. It does not require a BigBasket login or API key, and it does not collect private customer, account, seller, or contact data.
 
@@ -12,12 +12,17 @@ The default run is intentionally small: one in-stock `milk` result with one resu
 - Product position in the listing response
 - BigBasket product ID
 - Product title, brand, and pack size
+- Normalized pack quantity and unit price when the pack label is explicit
 - Current price, MRP, discount percentage, and currency
 - Category name when visible in the listing payload
 - Rating and rating count when available
 - Stock status
 - Optional previous price, price change, price-change percentage, and stock-change fields
-- Change labels: `new`, `unchanged`, `price_drop`, `price_increase`, `back_in_stock`, or `out_of_stock`
+- All observed changes in `changeTypes`, with `changeType` retained for compatibility
+- Change labels: `new`, `unchanged`, `baseline_reset`, `price_drop`, `price_increase`, `back_in_stock`, or `out_of_stock`
+- Source-reported pincode/city and the product's service-area and fulfillment-center IDs
+- Optional bounded `priceHistory`, `alertTriggered`, and `alertReasons`
+- A machine-readable `MONITORING-SUMMARY` JSON record and saved-row alerts
 - Product URL and image URL
 - Timestamp for each saved row
 
@@ -67,7 +72,7 @@ Use an Apify Task and Schedule when you need recurring BigBasket price or availa
 snapshots. Start with a daily schedule; use a higher frequency only when the business
 need justifies the additional requests and cost.
 
-This example tracks up to five Amul milk listings. The named key-value store keeps each product's previous state between scheduled runs:
+This example tracks up to five Amul milk listings. The named key-value store retains a baseline and up to 20 observations per comparable product context:
 
 ```json
 {
@@ -78,7 +83,13 @@ This example tracks up to five Amul milk listings. The named key-value store kee
   "maxResults": 5,
   "maxPagesPerSource": 1,
   "trackChanges": true,
-  "trackingStoreName": "bigbasket-mumbai-milk-watch",
+  "trackingStoreName": "bigbasket-milk-watch",
+  "trackingRegion": "milk-watch",
+  "historyLimit": 20,
+  "includeHistory": false,
+  "priceChangeThresholdPercent": 5,
+  "priceChangeThresholdAbsolute": 2,
+  "alertOnStockChanges": true,
   "proxyConfiguration": {
     "useApifyProxy": true,
     "apifyProxyGroups": ["RESIDENTIAL"],
@@ -91,21 +102,19 @@ This example tracks up to five Amul milk listings. The named key-value store kee
 2. Select **Save as a new task** on the Actor page.
 3. Open **Schedules**, create a daily schedule, and select the saved task.
 4. The first run marks each product as `new` and establishes the baseline.
-5. Later runs populate `previousPrice`, `priceChange`, `priceChangePercent`, `previousInStock`, `stockChanged`, and `changeType`.
-6. Filter `changeDetected: true`, or connect a webhook/API workflow for downstream alerts.
+5. Later comparable runs populate `previousPrice`, `priceChange`, `priceChangePercent`, `previousInStock`, `stockChanged`, and `changeTypes`.
+6. Filter `alertTriggered: true`, or consume the saved-row alert output in a webhook/API workflow. `changeDetected` also includes changes below your alert thresholds.
 
-The tracking store keeps the latest previous state, not a complete time series. Export
-each run to your own table when you need full historical charts. The Actor does not match
-products across different stores or send messages by itself. Availability and prices are
-regional, so use a separate `trackingStoreName` for every delivery region and keep the same
-proxy/delivery context when comparing runs.
+The tracking store keeps the latest snapshot plus a bounded history, defaulting to 20 and configurable from 1 to 90 observations. Export each successful run for a complete time series. History keys include the observed source context and `trackingRegion`; that label does not set a location. A new source or pack context creates a baseline without an alert, and old product-only history is not migrated into the scoped keys. Missing header linkage or product service-area/fulfillment-center IDs suppresses comparison. The Actor does not match products across stores or send outbound messages.
+
+Price alerts require both configured thresholds: the absolute INR change and the absolute percentage change must meet their respective minimums. Zero disables a threshold. Observed stock changes can trigger independently when `alertOnStockChanges` is enabled. The first observation and baseline resets do not alert. Use `inStockOnly: false` for stock monitoring; a missing listing row is never inferred to be out of stock. Keep one schedule per store/context and prevent overlapping runs: concurrent snapshot writers are not supported.
 
 For cost control, begin with one keyword, one page, five or fewer results, and a daily
 schedule. Avoid duplicate schedules and aggressive polling.
 
 ## Need Cross-Store Price Comparison?
 
-This Actor is designed for BigBasket-only catalog and price snapshots. To compare a product across BigBasket, Blinkit, Myntra, Meesho, and other supported India ecommerce sources, use the [India E-commerce Price Tracker](https://apify.com/fascinating_lentil/india-ecommerce-price-tracker).
+This Actor is designed for BigBasket-only catalog and price snapshots. The [India E-commerce Price Tracker](https://apify.com/fascinating_lentil/india-ecommerce-price-tracker) currently supports Flipkart, Myntra, BigBasket, and Meesho. Blinkit, JioMart, and AliExpress adapters are parked and are not supported comparison sources.
 
 For reliable comparison, use the same city or delivery area across sources and keep product-match confidence visible when titles or variants differ.
 
@@ -121,7 +130,28 @@ For reliable comparison, use the same city or delivery area across sources and k
 | `maxPagesPerSource` | integer | `1` | Maximum pages requested for each keyword or category URL. Range: 1-25. |
 | `trackChanges` | boolean | `false` | Compare each result with the previous product state stored across runs. |
 | `trackingStoreName` | string | `bigbasket-price-history` | Named persistent store used for tracking. Use one name per delivery region/workflow. |
-| `proxyConfiguration` | object | Residential India | Apify proxy settings. Residential India proxy is recommended for regional prices and availability. |
+| `trackingRegion` | string | `unspecified` | Stable monitoring label, 1-63 letters, numbers, `_` or `-`; normalized to lowercase. Isolates history without selecting location. |
+| `expectedPincode` | string | unset | Optional six-digit guard against the source-reported anonymous pincode. Fails when missing or mismatched; does not select location. |
+| `historyLimit` | integer | `20` | Retain the latest 1-90 comparable saved observations per product. |
+| `includeHistory` | boolean | `false` | Include `priceHistory` in tracked dataset rows; snapshots retain history regardless. |
+| `priceChangeThresholdPercent` | number | `0` | Minimum absolute percentage price change for an alert, 0-1000. |
+| `priceChangeThresholdAbsolute` | number | `0` | Minimum absolute INR price change for an alert, 0-1000000. |
+| `alertOnStockChanges` | boolean | `true` | Alert on an observed available/unavailable transition. |
+| `proxyConfiguration` | object | Residential India | Request proxy settings. An India proxy does not select or verify a delivery area. |
+
+## Source context and pincode guard
+
+`sourcePincode`, `sourceCity`, `sourceCityId`, and `sourceAddressIsPartial` describe BigBasket's matched, source-assigned anonymous storefront context. `sourceServiceAreaId` and `sourceFulfillmentCenterId` come from each product's listing payload. `locationContextStatus` is `source_assigned` when the product can be linked to the header, `product_context_only` when only product context is available, or `unavailable`. The Actor discards address IDs, address text, contacts, and coordinates.
+
+`deliveryLocationVerified` is always `false`. Anonymous defaults can be partial, and the active product service area can differ from the service area associated with the request's entry context. `expectedPincode` checks the reported source pincode and fails closed when it is missing or different. It does not select a delivery pincode, verify physical delivery location, or establish fulfillment eligibility. The public anonymous location selector currently opens an OTP sign-in dialog; explicit delivery-location selection remains unsupported.
+
+For example, after inspecting a run's reported context, add `"expectedPincode": "560004"` only if that is the source pincode your workflow expects. Neither `trackingRegion` nor proxy country is evidence that a location was selected.
+
+## Pack normalization
+
+Explicit labels such as `500 ml`, `1 kg`, `2 x 500 g`, `500 ml - Pack of 2`, and `6 pcs` produce `normalizedPackSize`, `packIdentity`, `packCount`, `totalQuantity`, and `quantityUnit`. Unit prices use INR per `100 g`, `1 L`, or `1 piece`. For example, a 500 ml pack priced at INR 32 has `unitPrice: 64` and `unitPriceBasis: "1 L"`.
+
+Ambiguous labels, approximate ranges, and labels containing non-quantity details remain `packNormalizationStatus: "unrecognized"` with null normalized quantities and unit prices. The original `packSize` is preserved. Quantities are never guessed from product titles or a displayed base price, and pack changes reset the monitoring baseline.
 
 ## Output
 
@@ -140,6 +170,22 @@ A saved dataset row looks like this:
   "discountPercent": null,
   "currency": "INR",
   "packSize": "500 ml",
+  "normalizedPackSize": "1 x 500 ml",
+  "packIdentity": "1x500ml",
+  "packNormalizationStatus": "parsed",
+  "packCount": 1,
+  "totalQuantity": 500,
+  "quantityUnit": "ml",
+  "unitPrice": 64,
+  "unitPriceBasis": "1 L",
+  "sourcePincode": "560004",
+  "sourceCity": "Bangalore",
+  "sourceCityId": 1,
+  "sourceAddressIsPartial": true,
+  "sourceServiceAreaId": 19224,
+  "sourceFulfillmentCenterId": 1820,
+  "locationContextStatus": "source_assigned",
+  "deliveryLocationVerified": false,
   "category": "Bakery, Cakes & Dairy",
   "rating": 3.7,
   "ratingCount": 18036,
@@ -147,6 +193,12 @@ A saved dataset row looks like this:
   "trackingEnabled": true,
   "changeDetected": true,
   "changeType": "price_drop",
+  "changeTypes": ["price_drop"],
+  "alertTriggered": true,
+  "alertReasons": ["price_drop"],
+  "comparisonSkippedReason": null,
+  "historyCount": 2,
+  "trackingRegion": "milk-watch",
   "previousPrice": 35,
   "priceChange": -3,
   "priceChangePercent": -8.57,
@@ -160,11 +212,15 @@ A saved dataset row looks like this:
 }
 ```
 
-Optional fields may be `null` or `N/A` when BigBasket does not expose them in the listing response.
+This is an illustrative observation, not a price or delivery promise. Optional fields may be `null` or `N/A` when BigBasket does not expose them. Tracking fields appear only with `trackChanges: true`; `priceHistory` additionally requires `includeHistory: true`. The run's default key-value store exposes `MONITORING-SUMMARY` JSON and an `ALERTS` JSON array. Alert copies omit history and are generated only for product rows successfully saved through the charged dataset operation, not for unpaid candidates.
+
+The summary includes saved/tracked counts, new baselines, baseline resets, observed changes, price/stock-change counts, alert counts, unverified-context counts, and snapshot-persistence failures. `collectionStatus` distinguishes `running`, `interrupted`, `bounded_window`, `partial`, `budget_limited`, and `location_guard_failed`; even `bounded_window` describes a limited listing sample, not a complete market snapshot. The summary explicitly reports `locationSelectionSupported: false` and `deliveryLocationVerified: false`.
+
+With tracking enabled, each completed page checkpoints `ALERTS` and then `MONITORING-SUMMARY` with `collectionStatus: "running"` before advancing that page's saved-row baselines. Unexpected errors attempt an `interrupted` checkpoint; pincode-guard failures use `location_guard_failed`. A failed artifact checkpoint leaves its pending baseline writes uncommitted. Hard termination can occur between these steps: the Dataset remains the recovery source, and an uncommitted baseline can cause an alert to repeat on the next run. These writes are not an exactly-once transaction across storages. Deduplicate downstream alerts by product, source context, and observation timestamp.
 
 ## Pricing
 
-This Actor uses Apify Pay Per Event pricing.
+The repository's bundled configuration currently uses Apify Pay Per Event pricing:
 
 | Event | Price |
 | --- | ---: |
@@ -173,13 +229,15 @@ This Actor uses Apify Pay Per Event pricing.
 
 Products are charged only when a clean product record is saved to the dataset. The Actor uses atomic dataset charging, so the run stops before saving unpaid records after the user's maximum charge is reached.
 
+Pack normalization, context metadata, history, and alert fields are bundled into the existing saved-product event; there is no separate history or alert event in this configuration. Check the Actor's live pricing page before running, because published pricing may differ from a local checkout.
+
 Platform usage, such as compute and proxy traffic, may also be charged by Apify depending on the run configuration. Residential India proxy is recommended for BigBasket reliability and regional pricing, but it can increase platform usage cost.
 
 ## Cost control
 
 - Start with one keyword and `maxResults: 1`.
 - Keep `maxPagesPerSource: 1` for the first test.
-- Keep `inStockOnly` enabled unless you need unavailable products.
+- Keep `inStockOnly` enabled for small catalog tests; disable it when monitoring stock transitions.
 - Add more keywords, brands, or category pages only after checking the output.
 - Use the run's maximum cost setting if you want a strict spending cap.
 
@@ -192,18 +250,23 @@ BigBasket prices and availability vary by region and can change frequently. The 
 - Retries for transient request failures
 - Deduplication by product ID, URL, or title
 - Invalid category URL skipping when at least one valid source remains
-- A zero-result failure guard so blocked or empty runs do not look successful
+- A failure guard when all source requests fail
 - Field-level fallbacks when optional listing data is unavailable
-- Optional persistent previous-state tracking in a named key-value store
-- Machine-readable price and availability change labels for scheduled workflows
+- Persistent snapshots and bounded history scoped to the observed source context and monitoring label
+- Pack/context baseline resets and suppression of unlinked or stale comparisons
+- Thresholded machine-readable alerts and a run summary for scheduled workflows
 
 ## Limits
 
 - This Actor reads public listing data, not private account or order data.
 - Some product cards do not expose ratings, discounts, stock flags, images, or MRP.
+- Missing or unknown availability is `inStock: null`; only an explicit source unavailable signal is recorded as `false`.
 - Brand and category values come from BigBasket's listing payload and may need downstream cleaning for strict catalog workflows.
-- Built-in tracking stores only the latest previous state, not every historical observation.
-- Regional comparisons require a consistent delivery/proxy context and a separate tracking store per region.
+- Built-in history retains a bounded sample of saved rows, not every market observation or an exhaustive assortment.
+- A missing product, truncated result page, filter, failed source, or spending limit does not establish that a product is out of stock.
+- Explicit pincode selection and verified fulfillment are unsupported; use source-context provenance and the optional expected-pincode guard.
+- Keep one schedule per tracking store/context and prevent overlapping runs; concurrent writers are not supported.
+- Page checkpoints reduce lost monitoring output, but abrupt termination can leave artifacts incomplete and alerts may repeat. Recover saved observations from the Dataset.
 - This Actor is not an official BigBasket API and is not affiliated with BigBasket.
 
 ## Responsible use

@@ -1,8 +1,13 @@
 import { Actor, log } from 'apify';
 import { fetchProductPage, sourceFromCategoryUrl, sourceFromKeyword } from './bigbasket.js';
+import type { AnonymousStorefrontSession } from './bigbasket.js';
+import { LocationContextError } from './location.js';
+import { monitoringArtifacts } from './monitoring.js';
+import { checkpointThenCommit } from './checkpoint.js';
+import { randomUUID } from 'node:crypto';
 import { normalizeInput } from './input.js';
 import { parseProductSnapshot, trackProduct, trackingKey } from './tracking.js';
-import type { ActorInput, ProductSnapshot, SourceDefinition } from './types.js';
+import type { ActorInput, ProductSnapshot, SourceDefinition, TrackedProductRecord } from './types.js';
 
 await Actor.init();
 
@@ -16,6 +21,7 @@ const {
     inStockOnly,
     trackChanges,
     trackingStoreName,
+    expectedPincode,
     proxyConfiguration: proxyInput,
 } = normalizedInput;
 const brands = new Set(normalizedInput.brands.map((value) => value.toLowerCase()));
@@ -52,11 +58,32 @@ if (trackingStore) {
 }
 
 const seenProductIds = new Set<string>();
+const storefrontSessions = new Map<string, AnonymousStorefrontSession>();
+const proxySessionPrefix = `bb_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+const trackedRecords: TrackedProductRecord[] = [];
 let savedCount = 0;
 let spendingLimitReached = false;
 let successfulPageCount = 0;
+let trackingPersistenceFailures = 0;
+const pendingSnapshots: Array<() => Promise<void>> = [];
+let collectionFailureStatus: 'interrupted' | 'location_guard_failed' = 'interrupted';
 
-for (const [sourceIndex, source] of sources.entries()) {
+async function writeMonitoringArtifacts(collectionStatus: 'running' | 'interrupted' | 'bounded_window' | 'partial' | 'budget_limited' | 'location_guard_failed') {
+    const artifacts = monitoringArtifacts(trackedRecords, {
+        savedCount, trackingEnabled: trackChanges, trackingStoreId: trackingStore?.id ?? null,
+        collectionStatus, successfulPageCount, trackingPersistenceFailures, expectedPincode,
+    });
+    // Alerts must be durable before any baseline is advanced.
+    await Actor.setValue('ALERTS', artifacts.alerts);
+    await Actor.setValue('MONITORING-SUMMARY', artifacts.summary);
+}
+
+async function checkpoint(collectionStatus: Parameters<typeof writeMonitoringArtifacts>[0]) {
+    await checkpointThenCommit(() => writeMonitoringArtifacts(collectionStatus), pendingSnapshots);
+}
+
+try {
+for (const source of sources) {
     if (spendingLimitReached) break;
 
     for (let page = 1; page <= maxPagesPerSource && savedCount < maxResults && !spendingLimitReached; page += 1) {
@@ -65,10 +92,19 @@ for (const [sourceIndex, source] of sources.entries()) {
 
         for (let attempt = 1; attempt <= 3; attempt += 1) {
             try {
-                const proxyUrl = await proxyConfiguration?.newUrl(`bb_${sourceIndex}_${page}_${attempt}`);
-                result = await fetchProductPage(source, page, proxyUrl);
+                // Reuse one anonymous storefront/proxy session across pages and searches.
+                const proxyUrl = await proxyConfiguration?.newUrl(`${proxySessionPrefix}_${attempt}`);
+                const sessionKey = proxyUrl ?? 'direct';
+                result = await fetchProductPage(source, page, proxyUrl, {
+                    session: storefrontSessions.get(sessionKey), expectedPincode,
+                });
+                storefrontSessions.set(sessionKey, result.session);
                 break;
             } catch (error) {
+                if (error instanceof LocationContextError) {
+                    collectionFailureStatus = 'location_guard_failed';
+                    throw error;
+                }
                 lastError = error;
                 log.warning(`BigBasket request attempt ${attempt}/3 failed`, {
                     source: source.source,
@@ -101,8 +137,11 @@ for (const [sourceIndex, source] of sources.entries()) {
 
         for (const product of result.products) {
             if (savedCount >= maxResults) break;
-            const uniqueKey = product.productId ?? product.productUrl ?? product.title;
-            if (!uniqueKey || seenProductIds.has(uniqueKey)) continue;
+            const identity = product.productId ?? product.productUrl ?? product.title;
+            if (!identity) continue;
+            const uniqueKey = JSON.stringify([identity, product.sourcePincode,
+                product.sourceServiceAreaId, product.sourceFulfillmentCenterId]);
+            if (seenProductIds.has(uniqueKey)) continue;
             if (brands.size > 0 && (!product.brand || !brands.has(product.brand.toLowerCase()))) continue;
             if (inStockOnly && !product.inStock) continue;
 
@@ -111,9 +150,17 @@ for (const [sourceIndex, source] of sources.entries()) {
             let snapshotKey: string | null = null;
 
             if (trackingStore) {
-                snapshotKey = trackingKey(product);
+                const contextKey = JSON.stringify([
+                    normalizedInput.trackingRegion,
+                    product.sourcePincode, product.sourceCityId,
+                    product.sourceServiceAreaId, product.sourceFulfillmentCenterId,
+                ]);
+                snapshotKey = trackingKey(product, contextKey);
                 const previous = parseProductSnapshot(await trackingStore.getValue(snapshotKey));
-                const tracked = trackProduct(product, previous);
+                const tracked = trackProduct(product, previous, {
+                    ...normalizedInput, contextKey,
+                    contextAvailable: product.locationContextStatus === 'source_assigned',
+                });
                 datasetRecord = tracked.record;
                 snapshot = tracked.snapshot;
             }
@@ -125,16 +172,27 @@ for (const [sourceIndex, source] of sources.entries()) {
             if (recordWasSaved) {
                 seenProductIds.add(uniqueKey);
                 savedCount += 1;
+                if (trackChanges) trackedRecords.push(datasetRecord as TrackedProductRecord);
 
-                if (trackingStore && snapshot && snapshotKey) {
+                if (trackingStore && snapshot && snapshotKey && product.locationContextStatus === 'source_assigned'
+                    && snapshot.lastSeenAt === product.scrapedAt) {
+                    const savedSnapshot = snapshot;
+                    const savedSnapshotKey = snapshotKey;
+                    pendingSnapshots.push(async () => {
                     try {
-                        await trackingStore.setValue(snapshotKey, snapshot);
+                        // Best-effort stale-write fencing; a named history has one writer (no overlapping schedules).
+                        const latest = parseProductSnapshot(await trackingStore.getValue(savedSnapshotKey));
+                        if (!latest || Date.parse(latest.lastSeenAt) < Date.parse(savedSnapshot.lastSeenAt)) {
+                            await trackingStore.setValue(savedSnapshotKey, savedSnapshot);
+                        }
                     } catch (error) {
+                        trackingPersistenceFailures += 1;
                         log.warning('Product was saved, but its tracking snapshot could not be updated', {
                             productId: product.productId,
                             error: String(error),
                         });
                     }
+                    });
                 }
             }
 
@@ -146,6 +204,7 @@ for (const [sourceIndex, source] of sources.entries()) {
             }
         }
 
+        if (trackChanges) await checkpoint('running');
         log.info(`Processed ${source.source} page ${page}`, {
             productsFound: result.products.length,
             totalSaved: savedCount,
@@ -159,10 +218,23 @@ for (const [sourceIndex, source] of sources.entries()) {
         await new Promise((resolve) => setTimeout(resolve, 500 + Math.floor(Math.random() * 1_000)));
     }
 }
+} catch (error) {
+    // Retain alerts for already saved rows. If publishing fails, leave baselines unchanged.
+    try {
+        await checkpoint(collectionFailureStatus);
+    } catch (checkpointError) {
+        log.warning('Monitoring checkpoint could not be published; uncommitted baselines remain unchanged', {
+            error: String(checkpointError),
+        });
+    }
+    throw error;
+}
 
 if (!spendingLimitReached) {
     await Actor.setStatusMessage(`Finished with ${savedCount} unique products`);
 }
+await checkpoint(spendingLimitReached ? 'budget_limited'
+    : skippedSources.length ? 'partial' : 'bounded_window');
 if (savedCount === 0 && successfulPageCount === 0 && !spendingLimitReached) {
     const reasons = skippedSources.map((item) => `${item.source}: ${item.reason}`).join('; ');
     throw new Error(`BigBasket scrape finished with no saved products.${reasons ? ` Skipped sources: ${reasons}` : ''}`);

@@ -31,6 +31,7 @@ const listingPayload = {
                             avail_status: '001',
                             not_for_sale: false,
                         },
+                        visibility: { sa_id: 19224, fc_id: 1820 },
                         pricing: {
                             discount: {
                                 mrp: '40',
@@ -70,6 +71,12 @@ test('normalizes default input to one low-cost milk run', () => {
     assert.equal(input.maxPagesPerSource, 1);
     assert.equal(input.trackChanges, false);
     assert.equal(input.trackingStoreName, 'bigbasket-price-history');
+    assert.equal(input.historyLimit, 20);
+    assert.equal(input.includeHistory, false);
+    assert.equal(input.priceChangeThresholdPercent, 0);
+    assert.equal(input.priceChangeThresholdAbsolute, 0);
+    assert.equal(input.alertOnStockChanges, true);
+    assert.equal(input.trackingRegion, 'unspecified');
     assert.equal(input.proxyConfiguration.useApifyProxy, true);
     assert.deepEqual(input.proxyConfiguration.apifyProxyGroups, ['RESIDENTIAL']);
     assert.equal(input.proxyConfiguration.apifyProxyCountry, 'IN');
@@ -152,6 +159,14 @@ test('parses listing payload into clean product records', () => {
     assert.equal(products[0].discountPercent, 20);
     assert.equal(products[0].currency, 'INR');
     assert.equal(products[0].packSize, '500 ml');
+    assert.equal(products[0].normalizedPackSize, '1 x 500 ml');
+    assert.equal(products[0].totalQuantity, 500);
+    assert.equal(products[0].unitPrice, 64);
+    assert.equal(products[0].unitPriceBasis, '1 L');
+    assert.equal(products[0].sourceServiceAreaId, 19224);
+    assert.equal(products[0].sourceFulfillmentCenterId, 1820);
+    assert.equal(products[0].locationContextStatus, 'product_context_only');
+    assert.equal(products[0].deliveryLocationVerified, false);
     assert.equal(products[0].category, 'Bakery, Cakes & Dairy');
     assert.equal(products[0].rating, 3.7);
     assert.equal(products[0].ratingCount, 18036);
@@ -161,7 +176,7 @@ test('parses listing payload into clean product records', () => {
 });
 
 test('tracks a new product and a later price drop', () => {
-    const product = productsFromListingData(listingPayload, sourceFromKeyword('milk'), 1)[0];
+    const product = { ...productsFromListingData(listingPayload, sourceFromKeyword('milk'), 1)[0], scrapedAt: '2026-08-23T10:00:00.000Z' };
     assert.equal(trackingKey(product), 'PRODUCT_40147597');
 
     const first = trackProduct(product, null);
@@ -184,6 +199,8 @@ test('tracks a new product and a later price drop', () => {
     assert.equal(changed.record.priceChangePercent, -12.5);
     assert.equal(changed.record.previousInStock, true);
     assert.equal(changed.record.stockChanged, true);
+    assert.deepEqual(changed.record.changeTypes, ['price_drop', 'out_of_stock']);
+    assert.deepEqual(changed.record.alertReasons, ['price_drop', 'out_of_stock']);
     assert.equal(changed.record.previousScrapedAt, product.scrapedAt);
     assert.equal(parseProductSnapshot(changed.snapshot)?.price, 28);
 });
@@ -192,6 +209,7 @@ test('does not report a price change when both observations have no price', () =
     const product = {
         ...productsFromListingData(listingPayload, sourceFromKeyword('milk'), 1)[0],
         price: null,
+        scrapedAt: '2026-08-23T10:00:00.000Z',
     };
     const first = trackProduct(product, null);
     const second = trackProduct({ ...product, scrapedAt: '2026-08-24T10:00:00.000Z' }, first.snapshot);

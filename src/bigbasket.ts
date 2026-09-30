@@ -1,5 +1,8 @@
 import { gotScraping } from 'got-scraping';
 import { randomUUID } from 'node:crypto';
+import { packFacts } from './catalog.js';
+import { assertExpectedPincode, bindProductContext, LocationContextError, sourceContextFromHeader } from './location.js';
+import type { SourceLocationContext } from './location.js';
 import type { ProductRecord, SourceDefinition } from './types.js';
 
 const BASE_URL = 'https://www.bigbasket.com';
@@ -19,6 +22,42 @@ function cookieHeader(setCookie: string[] | string | undefined): string {
     const values = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
     return values.map((value) => value.split(';')[0]).filter(Boolean).join('; ');
 }
+
+function mergeCookies(existing: string, setCookie: string[] | string | undefined): string {
+    const pairs = [...existing.split('; '), ...cookieHeader(setCookie).split('; ')].filter(Boolean);
+    const values = new Map<string, string>();
+    for (const pair of pairs) {
+        const separator = pair.indexOf('=');
+        if (separator > 0) values.set(pair.slice(0, separator), pair.slice(separator + 1));
+    }
+    return [...values].map(([name, value]) => `${name}=${value}`).join('; ');
+}
+
+export interface AnonymousStorefrontSession {
+    cookie: string;
+    proxyUrl?: string;
+    locationContext: SourceLocationContext | null;
+}
+
+export interface StorefrontRequestOptions {
+    url: string | URL;
+    proxyUrl?: string;
+    headers: Record<string, string>;
+    responseType: 'text';
+    throwHttpErrors: false;
+    timeout: { request: number };
+}
+
+export type StorefrontHttpClient = (options: StorefrontRequestOptions) => Promise<{
+    statusCode: number;
+    body: string;
+    headers: Record<string, string | string[] | undefined>;
+}>;
+
+const defaultHttpClient: StorefrontHttpClient = async options => {
+    const response = await gotScraping(options);
+    return { statusCode: response.statusCode, body: response.body, headers: response.headers };
+};
 
 function cleanText(value: unknown): string | null {
     const text = String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -74,6 +113,7 @@ export function productsFromListingData(
     data: Record<string, any>,
     source: SourceDefinition,
     page: number,
+    locationContext: SourceLocationContext | null = null,
 ): ProductRecord[] {
     const productInfo = data.tabs?.[0]?.product_info ?? {};
     const rawProducts: any[] = Array.isArray(productInfo.products) ? productInfo.products : [];
@@ -90,9 +130,11 @@ export function productsFromListingData(
         const discountPercent = savings !== null && marketPrice && marketPrice > 0
             ? Math.round((savings / marketPrice) * 100)
             : null;
-        const inStock = product.availability?.avail_status === '001' && product.availability?.not_for_sale !== true;
-        const basePrice = cleanText(product.pricing?.discount?.prim_price?.base_price);
-        const baseUnit = cleanText(product.pricing?.discount?.prim_price?.base_unit);
+        // Do not turn missing or unrecognized availability into a stock-change event.
+        const inStock = product.availability?.not_for_sale === true ? false
+            : product.availability?.avail_status === '001' ? true : null;
+        // A price-per-unit label is not the package quantity.
+        const packSize = cleanText(product.w) ?? 'N/A';
 
         return [{
             source: 'bigbasket',
@@ -105,7 +147,9 @@ export function productsFromListingData(
             mrp: marketPrice,
             discountPercent,
             currency: 'INR',
-            packSize: cleanText(product.w) ?? (basePrice && baseUnit ? `${basePrice}/${baseUnit}` : 'N/A'),
+            packSize,
+            ...packFacts(packSize, price),
+            ...bindProductContext(product.visibility, locationContext),
             category: textOrNA(product.category?.tlc_name ?? product.category?.llc_name ?? product.category?.mlc_name),
             rating: numberOrNull(product.rating_info?.avg_rating),
             ratingCount: integerOrNull(product.rating_info?.rating_count),
@@ -121,7 +165,12 @@ export async function fetchProductPage(
     source: SourceDefinition,
     page: number,
     proxyUrl?: string,
-): Promise<{ products: ProductRecord[]; numberOfPages: number }> {
+    options: {
+        session?: AnonymousStorefrontSession;
+        expectedPincode?: string | null;
+        request?: StorefrontHttpClient;
+    } = {},
+): Promise<{ products: ProductRecord[]; numberOfPages: number; session: AnonymousStorefrontSession }> {
     const landingUrl = source.sourceType === 'keyword'
         ? `${BASE_URL}/ps/?q=${encodeURIComponent(source.slug)}`
         : source.source;
@@ -131,7 +180,11 @@ export async function fetchProductPage(
         'accept-language': 'en-IN,en;q=0.9',
     };
 
-    const landing = await gotScraping({
+    const request = options.request ?? defaultHttpClient;
+    let session = options.session;
+    if (session && session.proxyUrl !== proxyUrl) throw new Error('Anonymous storefront session cannot be reused with a different proxy.');
+    if (!session) {
+    const landing = await request({
         url: landingUrl,
         proxyUrl,
         headers: { ...commonHeaders, accept: 'text/html,application/xhtml+xml,*/*;q=0.8' },
@@ -141,17 +194,37 @@ export async function fetchProductPage(
     });
     if (landing.statusCode >= 400) throw new Error(`BigBasket landing page returned HTTP ${landing.statusCode}`);
 
-    const cookie = cookieHeader(landing.headers['set-cookie']);
+    let cookie = cookieHeader(landing.headers['set-cookie']);
+    let locationContext: SourceLocationContext | null = null;
+    try {
+        const header = await request({
+            url: new URL('/ui-svc/v2/header/?send_door_info=true&send_address_set_by_user=true', BASE_URL),
+            proxyUrl,
+            headers: { ...commonHeaders, cookie, accept: 'application/json', referer: landingUrl,
+                'x-entry-context': 'bb-b2c', 'x-entry-context-id': '100', 'x-channel': 'BB-WEB' },
+            responseType: 'text', throwHttpErrors: false, timeout: { request: 15_000 },
+        });
+        if (header.statusCode < 400) {
+            locationContext = sourceContextFromHeader(JSON.parse(header.body));
+            cookie = mergeCookies(cookie, header.headers['set-cookie']);
+        }
+    } catch {
+        // Normal catalog collection can continue, but no location claim or history comparison is made.
+        locationContext = null;
+    }
+    session = { cookie, proxyUrl, locationContext };
+    }
+    assertExpectedPincode(options.expectedPincode, session.locationContext);
     const endpoint = buildListingEndpoint(source, page);
 
-    const response = await gotScraping({
+    const response = await request({
         url: endpoint,
         proxyUrl,
         headers: {
             ...commonHeaders,
             accept: '*/*',
             referer: landingUrl,
-            cookie,
+            cookie: session.cookie,
             'content-type': 'application/json',
             'x-requested-with': 'XMLHttpRequest',
             'osmos-enabled': 'true',
@@ -169,16 +242,21 @@ export async function fetchProductPage(
     });
 
     if (response.statusCode >= 400) throw new Error(`BigBasket listing API returned HTTP ${response.statusCode}`);
+    session.cookie = mergeCookies(session.cookie, response.headers['set-cookie']);
     const data = JSON.parse(response.body) as Record<string, any>;
     if (Array.isArray(data.errors) && data.errors.length > 0) {
         throw new Error(`BigBasket listing API error: ${data.errors[0]?.msg ?? 'unknown error'}`);
     }
 
     const productInfo = data.tabs?.[0]?.product_info ?? {};
-    const products = productsFromListingData(data, source, page);
+    const products = productsFromListingData(data, source, page, session.locationContext);
+    if (options.expectedPincode && products.some(product => product.locationContextStatus !== 'source_assigned')) {
+        throw new LocationContextError('BigBasket product service-area/fulfillment metadata could not be linked to the reported source pincode. No products from this page were saved.');
+    }
 
     return {
         products,
         numberOfPages: integerOrNull(productInfo.number_of_pages) ?? page,
+        session,
     };
 }

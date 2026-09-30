@@ -1,14 +1,26 @@
 {
   "actorOutputSchemaVersion": 1,
   "title": "BigBasket Grocery Scraper Output",
-  "description": "Structured BigBasket grocery product records with search queries, positions, product IDs, titles, brands, prices, MRP, discounts, pack sizes, categories, ratings, availability, image URLs, product URLs, and scraped timestamps.",
+  "description": "BigBasket product records with normalized packs, unit prices, anonymous source-context provenance, optional bounded monitoring history, thresholded saved-row alerts, and a machine-readable run summary. Source context does not verify delivery location or fulfillment.",
   "type": "object",
   "properties": {
     "results": {
       "type": "string",
       "title": "BigBasket product records",
-      "description": "Clean dataset items containing public BigBasket product catalog, price, discount, rating, stock, image, and URL data.",
+      "description": "Saved product rows containing catalog, price, stock, pack normalization, source-context fields and optional tracking/alert fields. Only charged saved rows contribute to monitoring outputs.",
       "template": "{{links.apiDefaultDatasetUrl}}/items"
+    },
+    "monitoringSummary": {
+      "type": "string",
+      "title": "Monitoring run summary (JSON)",
+      "description": "MONITORING-SUMMARY machine-readable run output. Counts and alerts cover saved observations; absent listing products are not inferred to be out of stock.",
+      "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/MONITORING-SUMMARY"
+    },
+    "alerts": {
+      "type": "string",
+      "title": "Saved product alerts (JSON)",
+      "description": "ALERTS copies for successfully saved product rows whose configured thresholds triggered. Baseline creation and context/pack resets do not trigger alerts. The Actor does not send outbound notifications.",
+      "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/ALERTS"
     }
   }
 }

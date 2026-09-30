@@ -9,6 +9,13 @@ export interface NormalizedInput {
     maxPagesPerSource: number;
     trackChanges: boolean;
     trackingStoreName: string;
+    historyLimit: number;
+    includeHistory: boolean;
+    priceChangeThresholdPercent: number;
+    priceChangeThresholdAbsolute: number;
+    alertOnStockChanges: boolean;
+    trackingRegion: string;
+    expectedPincode: string | null;
     proxyConfiguration: ProxyInput;
 }
 
@@ -60,6 +67,29 @@ function asProxyConfiguration(value: unknown): ProxyInput {
     return value as ProxyInput;
 }
 
+function asNumberInRange(value: unknown, fieldName: string, defaultValue: number, max: number): number {
+    if (value === undefined || value === null || value === '') return defaultValue;
+    const parsed = typeof value === 'string' ? Number(value) : value;
+    if (typeof parsed !== 'number' || !Number.isFinite(parsed) || parsed < 0 || parsed > max) {
+        fail(`must be a finite number between 0 and ${max}.`, fieldName);
+    }
+    return parsed;
+}
+
+function asTrackingRegion(value: unknown): string {
+    if (value === undefined || value === null || value === '') return 'unspecified';
+    if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,63}$/.test(value)) {
+        fail('must be 1-63 letters, numbers, underscores, or hyphens. This label does not select a delivery location.', 'trackingRegion');
+    }
+    return value.toLowerCase();
+}
+
+function asExpectedPincode(value: unknown): string | null {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value !== 'string' || !/^[1-9]\d{5}$/.test(value)) fail('must be a six-digit Indian pincode string. This guard does not select a delivery location.', 'expectedPincode');
+    return value;
+}
+
 function asTrackingStoreName(value: unknown): string {
     if (value === undefined || value === null || value === '') return 'bigbasket-price-history';
     if (typeof value !== 'string') fail('must be a string.', 'trackingStoreName');
@@ -92,6 +122,13 @@ export function normalizeInput(raw: ActorInput = {}): NormalizedInput {
         maxPagesPerSource: asIntInRange(raw.maxPagesPerSource, 'maxPagesPerSource', 1, 1, 25),
         trackChanges: asBoolean(raw.trackChanges, 'trackChanges', false),
         trackingStoreName: asTrackingStoreName(raw.trackingStoreName),
+        historyLimit: asIntInRange(raw.historyLimit, 'historyLimit', 20, 1, 90),
+        includeHistory: asBoolean(raw.includeHistory, 'includeHistory', false),
+        priceChangeThresholdPercent: asNumberInRange(raw.priceChangeThresholdPercent, 'priceChangeThresholdPercent', 0, 1000),
+        priceChangeThresholdAbsolute: asNumberInRange(raw.priceChangeThresholdAbsolute, 'priceChangeThresholdAbsolute', 0, 1_000_000),
+        alertOnStockChanges: asBoolean(raw.alertOnStockChanges, 'alertOnStockChanges', true),
+        trackingRegion: asTrackingRegion(raw.trackingRegion),
+        expectedPincode: asExpectedPincode(raw.expectedPincode),
         proxyConfiguration: asProxyConfiguration(raw.proxyConfiguration),
     };
 }

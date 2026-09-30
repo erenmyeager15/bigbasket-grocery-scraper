@@ -20,6 +20,12 @@
     "maxPagesPerSource": 1,
     "trackChanges": true,
     "trackingStoreName": "bigbasket-price-history",
+    "trackingRegion": "grocery-watch",
+    "historyLimit": 20,
+    "includeHistory": false,
+    "priceChangeThresholdPercent": 5,
+    "priceChangeThresholdAbsolute": 2,
+    "alertOnStockChanges": true,
     "proxyConfiguration": {
       "useApifyProxy": true,
       "apifyProxyGroups": [

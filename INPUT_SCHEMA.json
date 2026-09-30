@@ -64,7 +64,7 @@
     },
     "trackChanges": {
       "title": "Track price and stock changes",
-      "description": "Compare each product with its previous saved state in a persistent named key-value store. Keep the same delivery/proxy context across scheduled runs.",
+      "description": "Compare saved products within the same source context and pack identity, retaining a bounded observation history. Comparisons are suppressed when source context cannot be linked.",
       "type": "boolean",
       "editor": "checkbox",
       "default": false,
@@ -72,7 +72,7 @@
     },
     "trackingStoreName": {
       "title": "Tracking store name",
-      "description": "Persistent store used when change tracking is enabled. Use a different name for each delivery region or monitoring workflow.",
+      "description": "Persistent store used when change tracking is enabled. Use one schedule per store and monitoring context; overlapping writers are not supported.",
       "type": "string",
       "editor": "textfield",
       "default": "bigbasket-price-history",
@@ -81,9 +81,75 @@
       "maxLength": 63,
       "pattern": "^[A-Za-z0-9_-]+$"
     },
+    "trackingRegion": {
+      "title": "Monitoring context label",
+      "description": "A stable label that isolates tracking workflows. This label does not select a delivery location or verify fulfillment.",
+      "type": "string",
+      "editor": "textfield",
+      "default": "unspecified",
+      "prefill": "unspecified",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "expectedPincode": {
+      "title": "Expected source pincode",
+      "description": "Optional six-digit pincode guard. Fail the run if the anonymous storefront reports a different or unavailable source pincode. Does not select a delivery location or verify fulfillment.",
+      "type": "string",
+      "editor": "textfield",
+      "pattern": "^[1-9][0-9]{5}$",
+      "minLength": 6,
+      "maxLength": 6
+    },
+    "historyLimit": {
+      "title": "Observations retained per product",
+      "description": "Keep the latest saved observations within a comparable source and pack context. This is a bounded sample, not a complete market history.",
+      "type": "integer",
+      "editor": "number",
+      "minimum": 1,
+      "maximum": 90,
+      "default": 20,
+      "prefill": 20
+    },
+    "includeHistory": {
+      "title": "Include history in product rows",
+      "description": "When tracking is enabled, also export the bounded priceHistory array. History is retained in snapshots even when this is disabled.",
+      "type": "boolean",
+      "editor": "checkbox",
+      "default": false,
+      "prefill": false
+    },
+    "priceChangeThresholdPercent": {
+      "title": "Minimum price change percent",
+      "description": "Minimum absolute percentage change that triggers a price alert. Both percentage and absolute thresholds must pass. Zero disables this threshold; change fields remain available below it.",
+      "type": "number",
+      "editor": "number",
+      "minimum": 0,
+      "maximum": 1000,
+      "default": 0,
+      "prefill": 0
+    },
+    "priceChangeThresholdAbsolute": {
+      "title": "Minimum price change in INR",
+      "description": "Minimum absolute INR change that triggers a price alert. Both percentage and absolute thresholds must pass. Zero disables this threshold.",
+      "type": "number",
+      "editor": "number",
+      "minimum": 0,
+      "maximum": 1000000,
+      "default": 0,
+      "prefill": 0
+    },
+    "alertOnStockChanges": {
+      "title": "Alert on observed stock changes",
+      "description": "Trigger alerts when a returned product changes between available and unavailable. A product missing from a listing is not treated as out of stock. Use inStockOnly=false to retain unavailable rows.",
+      "type": "boolean",
+      "editor": "checkbox",
+      "default": true,
+      "prefill": true
+    },
     "proxyConfiguration": {
       "title": "Proxy configuration",
-      "description": "India residential proxies are recommended for regional availability and pricing.",
+      "description": "India residential proxies can improve request reliability. Proxy country does not select a delivery pincode or verify fulfillment; check the source-context fields.",
       "type": "object",
       "editor": "proxy",
       "default": {
