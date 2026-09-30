@@ -26,6 +26,22 @@ The default run is intentionally small: one in-stock `milk` result with one resu
 - Product URL and image URL
 - Timestamp for each saved row
 
+## See real sample results
+
+Before running the Actor, inspect this [25-product JSON sample](https://raw.githubusercontent.com/erenmyeager15/bigbasket-grocery-scraper/main/examples/bigbasket-milk-sample-2026-09-30.json). It contains actual public product rows from an owner-run `milk` search on **30 September 2026**, using build `1.0.23`. The run saved 25 rows in about 20 seconds, and all 25 explicit pack labels normalized. This is a dated test snapshot, not current prices, customer usage, or a complete market catalog.
+
+The first three rows were observed at **10:33 IST**:
+
+| Product | Original pack | Normalized pack | Price (INR) | Unit price (INR / 1 L) | Observed stock |
+| --- | --- | --- | ---: | ---: | --- |
+| Heritage Daily Health Toned Milk | 500 ml | 1 x 500 ml | 33 | 66 | In stock |
+| Amul Gold Full Cream Milk | 500 ml | 1 x 500 ml | 32 | 64 | In stock |
+| Nandini Samrudhi Milk | 500 ml | 1 x 500 ml | 28 | 56 | In stock |
+
+These are different milk products, not matched substitutes. The same unit-price basis makes pack quantities easier to inspect without claiming the products are equivalent. All 25 rows initialized tracking baselines (`changeType: "new"`, `historyCount: 1`); this batch detected no price/stock changes and triggered no alerts. A separate one-product repeat test retained two observations and reported no change—it was not a repeat of the entire 25-row batch.
+
+The sample preserves the reported anonymous source context, including pincode `560004`, service area `19224`, fulfillment center `1820`, and `sourceAddressIsPartial: true`. `deliveryLocationVerified` remains `false`: these fields do not select a delivery postcode or establish fulfillment eligibility. The expected-pincode guard was not enabled in this batch. The public download omits the owner's internal `trackingRegion` label; it contains no run input, cookies, headers, private tracking-store records, or customer data.
+
 ## Common uses
 
 1. Monitor grocery and FMCG prices, MRP, discounts, and availability.
@@ -155,7 +171,7 @@ Ambiguous labels, approximate ranges, and labels containing non-quantity details
 
 ## Output
 
-A saved dataset row looks like this:
+The following is a **synthetic schema illustration**, not the verified owner-run sample above. Its price drop is an example of the field structure, not an observed event from that test:
 
 ```json
 {
