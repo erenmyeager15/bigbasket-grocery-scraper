@@ -1,6 +1,6 @@
 import { Actor, log } from 'apify';
-import { fetchProductPage, sourceFromCategoryUrl, sourceFromKeyword } from './bigbasket.js';
-import type { AnonymousStorefrontSession } from './bigbasket.js';
+import { sourceFromCategoryUrl, sourceFromKeyword } from './bigbasket.js';
+import { createStorefrontPageLoader } from './storefront-retry.js';
 import { LocationContextError } from './location.js';
 import { monitoringArtifacts } from './monitoring.js';
 import { checkpointThenCommit } from './checkpoint.js';
@@ -58,8 +58,16 @@ if (trackingStore) {
 }
 
 const seenProductIds = new Set<string>();
-const storefrontSessions = new Map<string, AnonymousStorefrontSession>();
 const proxySessionPrefix = `bb_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+let requestingSource: string | null = null;
+let requestingPage = 0;
+const loadPage = createStorefrontPageLoader({
+    newProxyUrl: async rotation => proxyConfiguration?.newUrl(`${proxySessionPrefix}_${rotation}`),
+    expectedPincode,
+    onFailure: (attempt, error) => log.warning(`BigBasket request attempt ${attempt}/3 failed`, {
+        source: requestingSource, page: requestingPage, error: String(error),
+    }),
+});
 const trackedRecords: TrackedProductRecord[] = [];
 let savedCount = 0;
 let spendingLimitReached = false;
@@ -87,36 +95,17 @@ for (const source of sources) {
     if (spendingLimitReached) break;
 
     for (let page = 1; page <= maxPagesPerSource && savedCount < maxResults && !spendingLimitReached; page += 1) {
-        let result: Awaited<ReturnType<typeof fetchProductPage>> | null = null;
-        let lastError: unknown;
-
-        for (let attempt = 1; attempt <= 3; attempt += 1) {
-            try {
-                // Reuse one anonymous storefront/proxy session across pages and searches.
-                const proxyUrl = await proxyConfiguration?.newUrl(`${proxySessionPrefix}_${attempt}`);
-                const sessionKey = proxyUrl ?? 'direct';
-                result = await fetchProductPage(source, page, proxyUrl, {
-                    session: storefrontSessions.get(sessionKey), expectedPincode,
-                });
-                storefrontSessions.set(sessionKey, result.session);
-                break;
-            } catch (error) {
-                if (error instanceof LocationContextError) {
-                    collectionFailureStatus = 'location_guard_failed';
-                    throw error;
-                }
-                lastError = error;
-                log.warning(`BigBasket request attempt ${attempt}/3 failed`, {
-                    source: source.source,
-                    page,
-                    error: String(error),
-                });
-                await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
+        let result: Awaited<ReturnType<typeof loadPage>>;
+        requestingSource = source.source;
+        requestingPage = page;
+        try {
+            result = await loadPage(source, page);
+        } catch (error) {
+            if (error instanceof LocationContextError) {
+                collectionFailureStatus = 'location_guard_failed';
+                throw error;
             }
-        }
-
-        if (!result) {
-            const reason = lastError instanceof Error ? lastError.message : String(lastError);
+            const reason = error instanceof Error ? error.message : String(error);
             skippedSources.push({ source: source.source, reason });
             log.warning('Skipping BigBasket source after repeated request failures', {
                 source: source.source,
