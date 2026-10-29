@@ -9,8 +9,10 @@ const BASE_URL = 'https://www.bigbasket.com';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36';
 
 function numberOrNull(value: unknown): number | null {
-    const parsed = Number.parseFloat(String(value ?? ''));
-    return Number.isFinite(parsed) ? parsed : null;
+    if (typeof value !== 'string' && typeof value !== 'number') return null;
+    if (typeof value === 'string' && !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value.trim())) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function integerOrNull(value: unknown): number | null {
@@ -60,6 +62,7 @@ const defaultHttpClient: StorefrontHttpClient = async options => {
 };
 
 function cleanText(value: unknown): string | null {
+    if (typeof value !== 'string' && (typeof value !== 'number' || !Number.isFinite(value))) return null;
     const text = String(value ?? '').replace(/\s+/g, ' ').trim();
     if (text.toLowerCase() === 'proxied content') return null;
     return text || null;
@@ -77,6 +80,33 @@ function cleanImageUrl(value: unknown): string | null {
     if (url.startsWith('https://')) return url;
     if (url.startsWith('/')) return new URL(url, BASE_URL).toString();
     return null;
+}
+
+function productUrlOrNull(value: unknown): string | null {
+    const text = cleanText(value);
+    if (!text) return null;
+    try {
+        const url = new URL(text, BASE_URL);
+        if (url.protocol !== 'https:' || !['www.bigbasket.com', 'bigbasket.com'].includes(url.hostname)
+            || url.username || url.password || url.port || !/^\/pd\/[^/]+\//.test(url.pathname)) return null;
+        return url.toString();
+    } catch { return null; }
+}
+
+function listingProductInfo(data: unknown): Record<string, any> {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        throw new Error('BigBasket listing response has an unrecognized structure.');
+    }
+    const payload = data as Record<string, any>;
+    if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+        // Do not copy source response text, which can contain transient identifiers.
+        throw new Error('BigBasket listing response reported an API error.');
+    }
+    const info = Array.isArray(payload.tabs) ? payload.tabs[0]?.product_info : null;
+    if (!info || typeof info !== 'object' || Array.isArray(info) || !Array.isArray(info.products)) {
+        throw new Error('BigBasket listing response is missing the expected products structure.');
+    }
+    return info;
 }
 
 export function sourceFromKeyword(keyword: string): SourceDefinition {
@@ -115,16 +145,17 @@ export function productsFromListingData(
     page: number,
     locationContext: SourceLocationContext | null = null,
 ): ProductRecord[] {
-    const productInfo = data.tabs?.[0]?.product_info ?? {};
-    const rawProducts: any[] = Array.isArray(productInfo.products) ? productInfo.products : [];
+    const productInfo = listingProductInfo(data);
+    const rawProducts: any[] = productInfo.products;
 
     return rawProducts.flatMap((product, index): ProductRecord[] => {
+        if (!product || typeof product !== 'object' || Array.isArray(product)) return [];
         const price = numberOrNull(product.pricing?.discount?.prim_price?.sp);
         const marketPrice = numberOrNull(product.pricing?.discount?.mrp);
         const productId = cleanText(product.id);
         const productName = cleanText(product.desc);
-        const absoluteUrl = cleanText(product.absolute_url);
-        if (price === null || !productId || !productName || !absoluteUrl) return [];
+        const productUrl = productUrlOrNull(product.absolute_url);
+        if (price === null || !productId || !productName || !productUrl) return [];
 
         const savings = marketPrice !== null && marketPrice > price ? marketPrice - price : null;
         const discountPercent = savings !== null && marketPrice && marketPrice > 0
@@ -155,7 +186,7 @@ export function productsFromListingData(
             ratingCount: integerOrNull(product.rating_info?.rating_count),
             inStock,
             imageUrl: cleanImageUrl(product.images?.[0]?.l ?? product.images?.[0]?.m ?? product.images?.[0]?.s),
-            productUrl: new URL(absoluteUrl, BASE_URL).toString(),
+            productUrl,
             scrapedAt: new Date().toISOString(),
         }];
     });
@@ -170,7 +201,7 @@ export async function fetchProductPage(
         expectedPincode?: string | null;
         request?: StorefrontHttpClient;
     } = {},
-): Promise<{ products: ProductRecord[]; numberOfPages: number; session: AnonymousStorefrontSession }> {
+): Promise<{ products: ProductRecord[]; numberOfPages: number; session: AnonymousStorefrontSession; invalidProductCount: number }> {
     const landingUrl = source.sourceType === 'keyword'
         ? `${BASE_URL}/ps/?q=${encodeURIComponent(source.slug)}`
         : source.source;
@@ -244,12 +275,11 @@ export async function fetchProductPage(
     if (response.statusCode >= 400) throw new Error(`BigBasket listing API returned HTTP ${response.statusCode}`);
     session.cookie = mergeCookies(session.cookie, response.headers['set-cookie']);
     const data = JSON.parse(response.body) as Record<string, any>;
-    if (Array.isArray(data.errors) && data.errors.length > 0) {
-        throw new Error(`BigBasket listing API error: ${data.errors[0]?.msg ?? 'unknown error'}`);
-    }
-
-    const productInfo = data.tabs?.[0]?.product_info ?? {};
+    const productInfo = listingProductInfo(data);
     const products = productsFromListingData(data, source, page, session.locationContext);
+    if (productInfo.products.length > 0 && products.length === 0) {
+        throw new Error('BigBasket listing contained products, but none had valid product identity, price and URL.');
+    }
     if (options.expectedPincode && products.some(product => product.locationContextStatus !== 'source_assigned')) {
         throw new LocationContextError('BigBasket product service-area/fulfillment metadata could not be linked to the reported source pincode. No products from this page were saved.');
     }
@@ -257,6 +287,7 @@ export async function fetchProductPage(
     return {
         products,
         numberOfPages: integerOrNull(productInfo.number_of_pages) ?? page,
+        invalidProductCount: productInfo.products.length - products.length,
         session,
     };
 }

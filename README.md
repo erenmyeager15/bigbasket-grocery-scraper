@@ -232,6 +232,8 @@ This is an illustrative observation, not a price or delivery promise. Optional f
 
 The summary includes saved/tracked counts, new baselines, baseline resets, observed changes, price/stock-change counts, alert counts, unverified-context counts, and snapshot-persistence failures. `collectionStatus` distinguishes `running`, `interrupted`, `bounded_window`, `partial`, `budget_limited`, and `location_guard_failed`; even `bounded_window` describes a limited listing sample, not a complete market snapshot. The summary explicitly reports `locationSelectionSupported: false` and `deliveryLocationVerified: false`.
 
+`sourceCoverage` lists each keyword/category with pages fetched, valid products found, invalid cards skipped, products saved, and its stopping reason. A repeated page or an empty page before the declared end stops that source and produces `partial` coverage, retaining earlier saved rows. Duplicates shared by different keywords are removed without stopping the new keyword. The Actor does not infer stock loss from an incomplete source.
+
 With tracking enabled, each completed page checkpoints `ALERTS` and then `MONITORING-SUMMARY` with `collectionStatus: "running"` before advancing that page's saved-row baselines. Unexpected errors attempt an `interrupted` checkpoint; pincode-guard failures use `location_guard_failed`. A failed artifact checkpoint leaves its pending baseline writes uncommitted. Hard termination can occur between these steps: the Dataset remains the recovery source, and an uncommitted baseline can cause an alert to repeat on the next run. These writes are not an exactly-once transaction across storages. Deduplicate downstream alerts by product, source context, and observation timestamp.
 
 ## Pricing
@@ -268,6 +270,9 @@ BigBasket prices and availability vary by region and can change frequently. The 
 - Invalid category URL skipping when at least one valid source remains
 - A failure guard when all source requests fail
 - Field-level fallbacks when optional listing data is unavailable
+- Invalid individual product cards are skipped without discarding the rest of the page; missing listing structure is reported as a request failure
+- Repeated and unexpectedly empty later pages stop with explicit partial-coverage details
+- Saved-product budget checks before proxy setup, requests, recovery attempts and product processing
 - Persistent snapshots and bounded history scoped to the observed source context and monitoring label
 - Pack/context baseline resets and suppression of unlinked or stale comparisons
 - Thresholded machine-readable alerts and a run summary for scheduled workflows

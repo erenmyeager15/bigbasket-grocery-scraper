@@ -3,6 +3,10 @@ import type { AnonymousStorefrontSession } from './bigbasket.js';
 import { LocationContextError } from './location.js';
 import type { SourceDefinition } from './types.js';
 
+export class ProductBudgetReachedError extends Error {
+    constructor() { super('The spending limit cannot cover another product.'); this.name = 'ProductBudgetReachedError'; }
+}
+
 /** Retain the working storefront; retire failed sessions rather than cycling back. */
 export function createStorefrontPageLoader(options: {
     newProxyUrl: (rotation: number) => Promise<string | undefined>;
@@ -10,6 +14,7 @@ export function createStorefrontPageLoader(options: {
     fetchPage?: typeof fetchProductPage;
     wait?: (milliseconds: number) => Promise<void>;
     onFailure?: (attempt: number, error: unknown) => void;
+    canRequest?: () => boolean;
 }) {
     let active: { proxyUrl?: string; session: AnonymousStorefrontSession } | undefined;
     let rotation = 0;
@@ -18,6 +23,7 @@ export function createStorefrontPageLoader(options: {
     return async (source: SourceDefinition, page: number) => {
         let lastError: unknown;
         for (let attempt = 1; attempt <= 3; attempt += 1) {
+            if (options.canRequest && !options.canRequest()) throw new ProductBudgetReachedError();
             try {
                 const proxyUrl = active ? active.proxyUrl : await options.newProxyUrl(++rotation);
                 const result = await fetchPage(source, page, proxyUrl, {

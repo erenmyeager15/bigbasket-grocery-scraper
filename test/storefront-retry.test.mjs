@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createStorefrontPageLoader } from '../dist/storefront-retry.js';
+import { createStorefrontPageLoader, ProductBudgetReachedError } from '../dist/storefront-retry.js';
 import { sourceFromKeyword } from '../dist/bigbasket.js';
 import { LocationContextError } from '../dist/location.js';
 const milk = sourceFromKeyword('milk');
@@ -72,4 +72,23 @@ test('direct connections discard failed cookies without enabling a proxy', async
     });
     await load(milk, 1); await load(milk, 2);
     assert.equal(calls.length, 3); assert.ok(calls[1]); assert.equal(calls[2], undefined);
+});
+
+test('an exhausted budget stops before proxy setup or a source attempt', async () => {
+    const load = createStorefrontPageLoader({ canRequest: () => false,
+        newProxyUrl: async () => assert.fail('No proxy setup after exhausted budget'),
+        fetchPage: async () => assert.fail('No source request after exhausted budget'),
+    });
+    await assert.rejects(load(milk, 1), ProductBudgetReachedError);
+});
+
+test('budget depletion during recovery stops before the next proxy or source request', async () => {
+    let affordable = true, proxyCalls = 0, fetches = 0;
+    const load = createStorefrontPageLoader({ canRequest: () => affordable,
+        newProxyUrl: async () => { proxyCalls += 1; return undefined; }, wait: async () => { affordable = false; },
+        fetchPage: async () => { fetches += 1; throw new Error('Synthetic timeout'); },
+    });
+    await assert.rejects(load(milk, 1), ProductBudgetReachedError);
+    assert.equal(proxyCalls, 1);
+    assert.equal(fetches, 1);
 });

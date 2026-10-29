@@ -112,3 +112,14 @@ export interface SourceDefinition {
     type: string;
     slug: string;
 }
+
+export interface SourceCoverage {
+    source: string;
+    sourceType: SourceDefinition['sourceType'];
+    pagesFetched: number;
+    productsFound: number;
+    invalidProductCount: number;
+    savedCount: number;
+    reason: 'not_started' | 'interrupted' | 'result_limit' | 'page_limit' | 'source_exhausted'
+        | 'empty_before_declared_end' | 'repeated_page' | 'request_failed' | 'budget_limited' | 'location_guard_failed';
+}

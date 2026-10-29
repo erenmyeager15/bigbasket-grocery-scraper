@@ -1,13 +1,13 @@
 import { Actor, log } from 'apify';
 import { sourceFromCategoryUrl, sourceFromKeyword } from './bigbasket.js';
-import { createStorefrontPageLoader } from './storefront-retry.js';
+import { createStorefrontPageLoader, ProductBudgetReachedError } from './storefront-retry.js';
 import { LocationContextError } from './location.js';
 import { monitoringArtifacts } from './monitoring.js';
 import { checkpointThenCommit } from './checkpoint.js';
 import { randomUUID } from 'node:crypto';
 import { normalizeInput } from './input.js';
 import { parseProductSnapshot, trackProduct, trackingKey } from './tracking.js';
-import type { ActorInput, ProductSnapshot, SourceDefinition, TrackedProductRecord } from './types.js';
+import type { ActorInput, ProductSnapshot, SourceCoverage, SourceDefinition, TrackedProductRecord } from './types.js';
 
 await Actor.init();
 
@@ -46,10 +46,10 @@ if (sources.length === 0) {
     throw new Error(`Provide at least one valid keyword or BigBasket category URL.${reasons ? ` Skipped sources: ${reasons}` : ''}`);
 }
 
-const proxyConfiguration = await Actor.createProxyConfiguration(
-    proxyInput,
-);
-const trackingStore = trackChanges
+const canAffordProduct = () => Actor.getChargingManager().calculateMaxEventChargeCountWithinLimit('product-scraped') > 0;
+let spendingLimitReached = !canAffordProduct();
+const proxyConfiguration = spendingLimitReached ? undefined : await Actor.createProxyConfiguration(proxyInput);
+const trackingStore = trackChanges && !spendingLimitReached
     ? await Actor.openKeyValueStore(trackingStoreName)
     : null;
 
@@ -64,21 +64,26 @@ let requestingPage = 0;
 const loadPage = createStorefrontPageLoader({
     newProxyUrl: async rotation => proxyConfiguration?.newUrl(`${proxySessionPrefix}_${rotation}`),
     expectedPincode,
+    canRequest: canAffordProduct,
     onFailure: (attempt, error) => log.warning(`BigBasket request attempt ${attempt}/3 failed`, {
         source: requestingSource, page: requestingPage, error: String(error),
     }),
 });
 const trackedRecords: TrackedProductRecord[] = [];
 let savedCount = 0;
-let spendingLimitReached = false;
 let successfulPageCount = 0;
 let trackingPersistenceFailures = 0;
 const pendingSnapshots: Array<() => Promise<void>> = [];
 let collectionFailureStatus: 'interrupted' | 'location_guard_failed' = 'interrupted';
+const sourceCoverage: SourceCoverage[] = sources.map(source => ({
+    source: source.source, sourceType: source.sourceType, pagesFetched: 0,
+    productsFound: 0, invalidProductCount: 0, savedCount: 0, reason: 'not_started',
+}));
+let currentCoverage: SourceCoverage | null = null;
 
 async function writeMonitoringArtifacts(collectionStatus: 'running' | 'interrupted' | 'bounded_window' | 'partial' | 'budget_limited' | 'location_guard_failed') {
     const artifacts = monitoringArtifacts(trackedRecords, {
-        savedCount, trackingEnabled: trackChanges, trackingStoreId: trackingStore?.id ?? null,
+        savedCount, trackingEnabled: trackChanges, trackingStoreId: trackingStore?.id ?? null, sourceCoverage,
         collectionStatus, successfulPageCount, trackingPersistenceFailures, expectedPincode,
     });
     // Alerts must be durable before any baseline is advanced.
@@ -91,8 +96,12 @@ async function checkpoint(collectionStatus: Parameters<typeof writeMonitoringArt
 }
 
 try {
-for (const source of sources) {
-    if (spendingLimitReached) break;
+for (const [sourceIndex, source] of sources.entries()) {
+    if (spendingLimitReached || savedCount >= maxResults) break;
+    const coverage = sourceCoverage[sourceIndex];
+    currentCoverage = coverage;
+    coverage.reason = 'interrupted';
+    const seenSourceProductIds = new Set<string>();
 
     for (let page = 1; page <= maxPagesPerSource && savedCount < maxResults && !spendingLimitReached; page += 1) {
         let result: Awaited<ReturnType<typeof loadPage>>;
@@ -101,10 +110,17 @@ for (const source of sources) {
         try {
             result = await loadPage(source, page);
         } catch (error) {
+            if (error instanceof ProductBudgetReachedError) {
+                spendingLimitReached = true;
+                coverage.reason = 'budget_limited';
+                break;
+            }
             if (error instanceof LocationContextError) {
                 collectionFailureStatus = 'location_guard_failed';
+                coverage.reason = 'location_guard_failed';
                 throw error;
             }
+            coverage.reason = 'request_failed';
             const reason = error instanceof Error ? error.message : String(error);
             skippedSources.push({ source: source.source, reason });
             log.warning('Skipping BigBasket source after repeated request failures', {
@@ -116,16 +132,35 @@ for (const source of sources) {
         }
 
         successfulPageCount += 1;
+        coverage.pagesFetched += 1;
+        coverage.productsFound += result.products.length;
+        coverage.invalidProductCount += result.invalidProductCount;
 
-        if (page === 1 && result.products.length === 0) {
+        if (result.products.length === 0) {
+            coverage.reason = page < result.numberOfPages ? 'empty_before_declared_end' : 'source_exhausted';
             log.info('BigBasket source returned no matching products', {
                 source: source.source,
+                page,
             });
             break;
         }
 
+        const sourceProductKeys = result.products.map(product => JSON.stringify([
+            product.productId ?? product.productUrl ?? product.title,
+            product.sourcePincode, product.sourceServiceAreaId, product.sourceFulfillmentCenterId,
+        ]));
+        if (sourceProductKeys.every(key => seenSourceProductIds.has(key))) {
+            coverage.reason = 'repeated_page';
+            log.warning('BigBasket repeated an already observed source page; retaining saved rows and stopping this source', {
+                source: source.source, page,
+            });
+            break;
+        }
+        for (const key of sourceProductKeys) seenSourceProductIds.add(key);
+
         for (const product of result.products) {
             if (savedCount >= maxResults) break;
+            if (!canAffordProduct()) { spendingLimitReached = true; break; }
             const identity = product.productId ?? product.productUrl ?? product.title;
             if (!identity) continue;
             const uniqueKey = JSON.stringify([identity, product.sourcePincode,
@@ -161,6 +196,7 @@ for (const source of sources) {
             if (recordWasSaved) {
                 seenProductIds.add(uniqueKey);
                 savedCount += 1;
+                coverage.savedCount += 1;
                 if (trackChanges) trackedRecords.push(datasetRecord as TrackedProductRecord);
 
                 if (trackingStore && snapshot && snapshotKey && product.locationContextStatus === 'source_assigned'
@@ -193,6 +229,8 @@ for (const source of sources) {
             }
         }
 
+        coverage.reason = spendingLimitReached ? 'budget_limited' : savedCount >= maxResults ? 'result_limit'
+            : page >= result.numberOfPages ? 'source_exhausted' : page >= maxPagesPerSource ? 'page_limit' : 'interrupted';
         if (trackChanges) await checkpoint('running');
         log.info(`Processed ${source.source} page ${page}`, {
             productsFound: result.products.length,
@@ -208,6 +246,7 @@ for (const source of sources) {
     }
 }
 } catch (error) {
+    if (currentCoverage && currentCoverage.reason !== 'location_guard_failed') currentCoverage.reason = 'interrupted';
     // Retain alerts for already saved rows. If publishing fails, leave baselines unchanged.
     try {
         await checkpoint(collectionFailureStatus);
@@ -219,11 +258,12 @@ for (const source of sources) {
     throw error;
 }
 
-if (!spendingLimitReached) {
-    await Actor.setStatusMessage(`Finished with ${savedCount} unique products`);
-}
+const partialCoverage = skippedSources.length > 0 || sourceCoverage.some(source =>
+    ['request_failed', 'repeated_page', 'empty_before_declared_end', 'interrupted'].includes(source.reason));
 await checkpoint(spendingLimitReached ? 'budget_limited'
-    : skippedSources.length ? 'partial' : 'bounded_window');
+    : partialCoverage ? 'partial' : 'bounded_window');
+await Actor.setStatusMessage(spendingLimitReached ? `Stopped at the spending limit after ${savedCount} products`
+    : `Finished with ${savedCount} unique products${partialCoverage ? '; partial source coverage, see MONITORING-SUMMARY' : ''}`);
 if (savedCount === 0 && successfulPageCount === 0 && !spendingLimitReached) {
     const reasons = skippedSources.map((item) => `${item.source}: ${item.reason}`).join('; ');
     throw new Error(`BigBasket scrape finished with no saved products.${reasons ? ` Skipped sources: ${reasons}` : ''}`);

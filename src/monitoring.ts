@@ -1,4 +1,4 @@
-import type { TrackedProductRecord } from './types.js';
+import type { SourceCoverage, TrackedProductRecord } from './types.js';
 
 export function monitoringArtifacts(
     records: TrackedProductRecord[],
@@ -10,6 +10,7 @@ export function monitoringArtifacts(
         successfulPageCount: number;
         trackingPersistenceFailures: number;
         expectedPincode: string | null;
+        sourceCoverage?: SourceCoverage[];
     },
 ) {
     const alerts = records.filter(record => record.alertTriggered).map(({ priceHistory: _history, ...record }) => record);
@@ -19,6 +20,7 @@ export function monitoringArtifacts(
             schemaVersion: 1,
             generatedAt: new Date().toISOString(),
             ...details,
+            sourceCoverage: details.sourceCoverage ?? [],
             locationSelectionSupported: false,
             deliveryLocationVerified: false,
             monitoringNote: 'Source-reported anonymous context only; no delivery fulfillment guarantee. Missing products are not inferred to be out of stock.',
