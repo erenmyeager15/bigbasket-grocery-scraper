@@ -6,7 +6,7 @@
   "properties": {
     "keywords": {
       "title": "Search keywords",
-      "description": "One or more grocery searches. Duplicate products are removed across all sources.",
+      "description": "One or more grocery searches in English, such as milk, atta or amul butter. Duplicate products are removed across all sources.",
       "type": "array",
       "editor": "stringList",
       "default": ["milk"],
@@ -16,7 +16,7 @@
     },
     "categoryUrls": {
       "title": "Category URLs",
-      "description": "Optional BigBasket category URLs, such as https://www.bigbasket.com/pc/fruits-vegetables/fresh-vegetables/",
+      "description": "Optional BigBasket category (/pc/ or /cl/) or brand (/pb/) URLs, such as https://www.bigbasket.com/pc/fruits-vegetables/fresh-vegetables/ or https://www.bigbasket.com/pb/amul/",
       "type": "array",
       "editor": "stringList",
       "default": [],

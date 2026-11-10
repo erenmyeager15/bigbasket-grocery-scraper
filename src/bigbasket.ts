@@ -126,7 +126,23 @@ export function sourceFromCategoryUrl(value: string): SourceDefinition {
         throw new Error(`Unsupported BigBasket category URL: ${value}`);
     }
 
-    return { sourceType: 'category', source: value, type: listingType, slug };
+    // Verified 10 Nov 2026: the listing API answers type=cl with HTTP 400; the
+    // same slug as type=pc returns that category's products.
+    return { sourceType: 'category', source: value, type: listingType === 'cl' ? 'pc' : listingType, slug };
+}
+
+/** BigBasket search returns an empty body for non-Latin text such as "दूध". */
+export function unsupportedKeywordReason(keyword: string): string | null {
+    return /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.test(keyword)
+        ? `BigBasket search only understands English keywords. Try the English name, for example "milk" instead of "दूध".`
+        : null;
+}
+
+/** First request of a session. Akamai blocks category pages (HTTP 403, verified
+ * 10 Nov 2026), so category sessions start on the search page, which is allowed. */
+export function warmupUrlFor(source: SourceDefinition): string {
+    const query = source.sourceType === 'keyword' ? source.slug : source.slug.replace(/-/g, ' ');
+    return `${BASE_URL}/ps/?q=${encodeURIComponent(query)}`;
 }
 
 export function buildListingEndpoint(source: SourceDefinition, page: number): URL {
@@ -216,7 +232,7 @@ export async function fetchProductPage(
     if (session && session.proxyUrl !== proxyUrl) throw new Error('Anonymous storefront session cannot be reused with a different proxy.');
     if (!session) {
     const landing = await request({
-        url: landingUrl,
+        url: warmupUrlFor(source),
         proxyUrl,
         headers: { ...commonHeaders, accept: 'text/html,application/xhtml+xml,*/*;q=0.8' },
         responseType: 'text',
@@ -274,7 +290,12 @@ export async function fetchProductPage(
 
     if (response.statusCode >= 400) throw new Error(`BigBasket listing API returned HTTP ${response.statusCode}`);
     session.cookie = mergeCookies(session.cookie, response.headers['set-cookie']);
-    const data = JSON.parse(response.body) as Record<string, any>;
+    let data: Record<string, any>;
+    try {
+        data = JSON.parse(response.body) as Record<string, any>;
+    } catch {
+        throw new Error(response.body.trim() ? 'BigBasket listing API returned non-JSON content.' : 'BigBasket listing API returned an empty response.');
+    }
     const productInfo = listingProductInfo(data);
     const products = productsFromListingData(data, source, page, session.locationContext);
     if (productInfo.products.length > 0 && products.length === 0) {

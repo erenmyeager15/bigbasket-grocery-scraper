@@ -1,5 +1,5 @@
 import { Actor, log } from 'apify';
-import { sourceFromCategoryUrl, sourceFromKeyword } from './bigbasket.js';
+import { sourceFromCategoryUrl, sourceFromKeyword, unsupportedKeywordReason } from './bigbasket.js';
 import { createStorefrontPageLoader, ProductBudgetReachedError } from './storefront-retry.js';
 import { LocationContextError } from './location.js';
 import { monitoringArtifacts } from './monitoring.js';
@@ -27,7 +27,16 @@ const {
 const brands = new Set(normalizedInput.brands.map((value) => value.toLowerCase()));
 
 const skippedSources: Array<{ source: string; reason: string }> = [];
-const sources: SourceDefinition[] = keywords.map(sourceFromKeyword);
+const sources: SourceDefinition[] = [];
+for (const keyword of keywords) {
+    const reason = unsupportedKeywordReason(keyword);
+    if (reason) {
+        skippedSources.push({ source: keyword, reason });
+        log.warning('Skipping BigBasket keyword', { source: keyword, reason });
+    } else {
+        sources.push(sourceFromKeyword(keyword));
+    }
+}
 for (const categoryUrl of categoryUrls) {
     try {
         sources.push(sourceFromCategoryUrl(categoryUrl));

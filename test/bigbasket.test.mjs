@@ -6,6 +6,8 @@ import {
     productsFromListingData,
     sourceFromCategoryUrl,
     sourceFromKeyword,
+    unsupportedKeywordReason,
+    warmupUrlFor,
 } from '../dist/bigbasket.js';
 import { normalizeInput } from '../dist/input.js';
 import { parseProductSnapshot, trackProduct, trackingKey } from '../dist/tracking.js';
@@ -132,6 +134,23 @@ test('builds and validates BigBasket source definitions', () => {
         () => sourceFromCategoryUrl('https://example.com/pc/fruits-vegetables/'),
         /bigbasket\.com/,
     );
+});
+
+test('cl category URLs use the pc listing type and category sessions warm up on search', () => {
+    const cl = sourceFromCategoryUrl('https://www.bigbasket.com/cl/fruits-vegetables/?nc=nb');
+    assert.equal(cl.type, 'pc');
+    assert.equal(cl.slug, 'fruits-vegetables');
+    assert.equal(buildListingEndpoint(cl, 1).searchParams.get('type'), 'pc');
+    assert.equal(warmupUrlFor(cl), 'https://www.bigbasket.com/ps/?q=fruits%20vegetables');
+    assert.equal(warmupUrlFor(sourceFromKeyword('amul butter')), 'https://www.bigbasket.com/ps/?q=amul%20butter');
+    assert.equal(sourceFromCategoryUrl('https://www.bigbasket.com/pb/amul/').type, 'pb');
+});
+
+test('non-English keywords are rejected with a clear reason; English ones pass', () => {
+    assert.match(unsupportedKeywordReason('दूध'), /English/);
+    for (const keyword of ['milk', 'Tata Salt 1kg', 'coca-cola', 'Café coffee', "Haldiram's"]) {
+        assert.equal(unsupportedKeywordReason(keyword), null, keyword);
+    }
 });
 
 test('uses BigBasket canonical listing endpoint with its required trailing slash', () => {
